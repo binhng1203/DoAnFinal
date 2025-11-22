@@ -1,0 +1,62 @@
+services:
+  db:
+    image: postgres:16
+    container_name: system_db_final
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: final
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata_final:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d final"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  user-service:
+    build: ./user_service
+    container_name: user_service_app
+    env_file: ./user_service/.env
+    environment:
+      - DATABASE_URL=postgres://app_user:app_password@db:5432/final
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    # --- THAY ĐỔI QUAN TRỌNG 1: Mount code vào container ---
+    volumes:
+      - ./user_service:/app  # Ánh xạ thư mục code hiện tại vào /app bên trong container
+    command: >
+      sh -c "
+      python manage.py migrate &&
+      gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload
+      "
+      # Thêm flag --reload để khi sửa code, server tự khởi động lại
+
+  project-service:
+    build: ./project_service
+    container_name: project_service_app
+    env_file: ./project_service/.env
+    environment:
+      - DATABASE_URL=postgres://app_user:app_password@db:5432/final
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    # --- THAY ĐỔI QUAN TRỌNG 2: Mount code vào container ---
+    volumes:
+      - ./project_service:/app # Ánh xạ thư mục code hiện tại vào /app bên trong container
+    command: >
+      sh -c "
+      python manage.py migrate &&
+      gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload
+      "
+
+volumes:
+  pgdata_final:
