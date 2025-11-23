@@ -1,62 +1,199 @@
+version: '3.9'
 services:
-  db:
+  # ============================================================
+  # 1. SHARED DATABASE
+  # ============================================================
+  system_db:
     image: postgres:16
     container_name: system_db_final
+    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: final
+      TZ: Asia/Bangkok
     ports:
       - "5432:5432"
     volumes:
-      - pgdata_final:/var/lib/postgresql/data
+      - pgdata_shared:/var/lib/postgresql/data
+      # Quan trọng: Phải có file 01_init_multidb.sql ở đây
       - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d final"]
       interval: 5s
       timeout: 3s
       retries: 20
+    networks:
+      - app-network
 
+  # ============================================================
+  # 2. WEB SERVICES GROUP
+  # ============================================================
   user-service:
     build: ./user_service
     container_name: user_service_app
     env_file: ./user_service/.env
     environment:
-      - DATABASE_URL=postgres://app_user:app_password@db:5432/final
+      # nếu .env đã tự khai báo DATABASE_URL thì có thể bỏ dòng dưới
+      - DATABASE_URL=postgres://postgres:postgres@system_db:5432/final
     depends_on:
-      db:
+      system_db:
         condition: service_healthy
     ports:
       - "8001:8000"
-    # --- THAY ĐỔI QUAN TRỌNG 1: Mount code vào container ---
     volumes:
-      - ./user_service:/app  # Ánh xạ thư mục code hiện tại vào /app bên trong container
-    command: >
-      sh -c "
-      python manage.py migrate &&
-      gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload
-      "
-      # Thêm flag --reload để khi sửa code, server tự khởi động lại
+      - ./user_service:/app
+    command: sh -c "python manage.py migrate && gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload"
+    networks:
+      - app-network
 
   project-service:
     build: ./project_service
     container_name: project_service_app
     env_file: ./project_service/.env
     environment:
-      - DATABASE_URL=postgres://app_user:app_password@db:5432/final
+      - DATABASE_URL=postgres://postgres:postgres@system_db:5432/final
     depends_on:
-      db:
+      system_db:
         condition: service_healthy
     ports:
       - "8002:8000"
-    # --- THAY ĐỔI QUAN TRỌNG 2: Mount code vào container ---
     volumes:
-      - ./project_service:/app # Ánh xạ thư mục code hiện tại vào /app bên trong container
-    command: >
-      sh -c "
-      python manage.py migrate &&
-      gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload
-      "
+      - ./project_service:/app
+    command: sh -c "python manage.py migrate && gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload"
+    networks:
+      - app-network
+
+  # ============================================================
+  # 3. HEALENIUM CORE GROUP
+  # ============================================================
+  healenium:
+    image: healenium/hlm-backend:3.4.10
+    container_name: healenium
+    restart: on-failure
+    depends_on:
+      system_db:
+        condition: service_healthy
+    ports:
+      - "7878:7878"
+    environment:
+      # 👉 Dùng DB final, schema healenium
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://system_db:5432/final?currentSchema=healenium
+      - SPRING_DATASOURCE_USERNAME=healenium_user
+      - SPRING_DATASOURCE_PASSWORD=YDk2nmNs4s9aCP6K
+      - SPRING_JPA_PROPERTIES_HIBERNATE_DEFAULT_SCHEMA=healenium
+      - SPRING_LIQUIBASE_DEFAULT_SCHEMA=healenium
+
+      - SERVER_PORT=7878
+      - KEY_SELECTOR_URL=false
+      - COLLECT_METRICS=true
+      - FIND_ELEMENTS_AUTO_HEALING=false
+      - HLM_LOG_LEVEL=info
+      - TZ=Asia/Bangkok
+    volumes:
+      - ./screenshots/:/screenshots
+      - ./logs/:/logs
+    networks:
+      - app-network
+
+  selector-imitator:
+    image: healenium/hlm-selector-imitator:1.6
+    container_name: selector-imitator
+    restart: on-failure
+    networks:
+      - app-network
+
+  hlm-proxy:
+    image: healenium/hlm-proxy:2.1.9
+    container_name: hlm-proxy
+    restart: on-failure
+    ports:
+      - "8085:8085"
+    environment:
+      - RECOVERY_TRIES=1
+      - SCORE_CAP=.6
+      - HEAL_ENABLED=true
+      - SELENIUM_SERVER_URL=http://selenium-hub:4444/wd/hub
+      - HEALENIUM_SERVER_URL=http://healenium:7878
+      - HEALENIUM_SERVICE=http://healenium:7878
+      - IMITATE_SERVICE=http://selector-imitator:8000
+      - HLM_LOG_LEVEL=debug
+      - TZ=Asia/Bangkok
+    depends_on:
+      selenium-hub:
+        condition: service_started
+      healenium:
+        condition: service_started
+    networks:
+      - app-network
+
+  # ============================================================
+  # 4. SELENIUM GRID
+  # ============================================================
+  selenium-hub:
+    image: selenium/hub:latest
+    container_name: selenium-hub
+    restart: on-failure
+    ports:
+      - "4442:4442"
+      - "4443:4443"
+      - "4444:4444"
+    networks:
+      - app-network
+
+  chrome:
+    image: selenium/node-chrome:latest
+    container_name: node-chrome
+    restart: on-failure
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - SE_NODE_MAX_INSTANCES=5
+      - SE_NODE_MAX_SESSIONS=5
+      - TZ=Asia/Bangkok
+    networks:
+      - app-network
+
+  edge:
+    image: selenium/node-edge:latest
+    container_name: node-edge
+    shm_size: 2gb
+    restart: on-failure
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - TZ=Asia/Bangkok
+    networks:
+      - app-network
+
+  firefox:
+    image: selenium/node-firefox:latest
+    container_name: node-firefox
+    restart: on-failure
+    shm_size: 2gb
+    depends_on:
+      - selenium-hub
+    environment:
+      - SE_EVENT_BUS_HOST=selenium-hub
+      - SE_EVENT_BUS_PUBLISH_PORT=4442
+      - SE_EVENT_BUS_SUBSCRIBE_PORT=4443
+      - TZ=Asia/Bangkok
+    networks:
+      - app-network
+
+# ============================================================
+# NETWORKS & VOLUMES
+# ============================================================
+networks:
+  app-network:
+    driver: bridge
 
 volumes:
-  pgdata_final:
+  pgdata_shared:
