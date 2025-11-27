@@ -2,31 +2,20 @@
 import logging
 from typing import Any, Dict, Optional
 
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    WebDriverException,
-)
 from selenium.webdriver.remote.webdriver import WebDriver
 
 from .manager import HealingManager
-from .context import HealingContext
 
 logger = logging.getLogger(__name__)
 
 
 class HealingWrapper:
     """
-    Wrapper chuẩn cho self-healing:
-    
-    TẦNG 1: Healenium native (qua proxy 8085)
-        - driver.find_element() luôn được thử trước
-        - Log rõ ràng native-found / native-failed
-        - Bắt được cả NoSuchElementException & WebDriverException
+    Wrapper mỏng cho self-healing, dùng lại toàn bộ logic trong HealingManager.
 
-    TẦNG 2: Python fallback (4-layer)
-        - Chỉ chạy khi native fail thật sự
-        - Có thể tắt fallback hoặc bật chế độ native-only
-        - Đồng bộ hoàn toàn với HealingManager.heal()
+    - Tầng 1 (Healenium native) + Tầng 2 (Python fallback) + element validation
+      đều được điều phối bởi HealingManager.get_healing_find_function().
+    - Wrapper này chỉ cung cấp API tiện dụng cho test code.
     """
 
     def __init__(self, manager: HealingManager):
@@ -40,62 +29,51 @@ class HealingWrapper:
         element_name: str,
         test_context: Optional[Dict[str, Any]] = None,
     ) -> object:
+        """
+        API tiện dụng:
 
+        Thay vì test gọi trực tiếp healing_find_func(...),
+        có thể gọi wrapper.find_element(...).
+
+        Bên dưới sẽ dùng HealingManager.get_healing_find_function(driver),
+        nên:
+          - Tầng 1: thử native/Healenium trước
+          - Tầng 2: nếu native fail → Python fallback (heal pipeline)
+          - Có element-level validation theo config của manager
+        """
         if test_context is None:
             test_context = {}
 
-        # Dùng để ép native-only trong testcase
-        native_only_mode = bool(test_context.get("native_only", False))
+        healing_find_func = self.manager.get_healing_find_function(driver)
 
-        # ======================= 
-        #  TẦNG 1 — Healenium Native
-        # =======================
-        try:
-            el = driver.find_element(by, value)
-            logger.info(
-                f"[HealingWrapper] (T1-native) FOUND: {element_name} "
-                f"(by={by}, value={value})"
-            )
-            return el
-
-        except (NoSuchElementException, WebDriverException) as e:
-            # Báo native fail
-            logger.warning(
-                f"[HealingWrapper] (T1-native) NOT FOUND/NOT HEALED: {element_name} "
-                f"(by={by}, value={value}); Exception={type(e).__name__}"
-            )
-
-            # ============================
-            #  Native-only mode → fail thẳng
-            # ============================
-            if native_only_mode or not self.manager.enable_python_fallback:
-                logger.error(
-                    f"[HealingWrapper] Native-only mode: KHÔNG chạy fallback cho {element_name}."
-                )
-                raise NoSuchElementException(
-                    f"Native Healenium failed for {element_name} "
-                    f"(by={by}, value={value})"
-                ) from e
-
-        # =======================
-        #  TẦNG 2 — Python Fallback
-        # =======================
-        logger.warning(
-            f"[HealingWrapper] (T2-fallback) Kích hoạt pipeline self-healing Python cho '{element_name}'..."
+        logger.info(
+            f"[HealingWrapper] Gọi healing_find_func cho '{element_name}' "
+            f"(by={by}, value={value})"
         )
 
-        context = HealingContext(
-            driver=driver,
-            broken_locator=(by, value),
+        return healing_find_func(
+            by=by,
+            value=value,
             element_name=element_name,
             test_context=test_context,
         )
 
-        healed_el = self.manager.heal(context)
+    def validate_fullscreen(
+        self,
+        driver: WebDriver,
+        page_name: str,
+        test_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Helper để test có thể gọi fullscreen validation qua wrapper.
 
+        Thực chất chỉ forward xuống HealingManager.validate_fullscreen().
+        """
         logger.info(
-            f"[HealingWrapper] (T2-fallback) COMPLETED for '{element_name}'. "
-            f"Healed -> {context.chosen_locator}"
+            f"[HealingWrapper] Gọi fullscreen validation cho page '{page_name}'"
         )
-
-        return healed_el
+        return self.manager.validate_fullscreen(
+            driver=driver,
+            page_name=page_name,
+            test_context=test_context or {},
+        )

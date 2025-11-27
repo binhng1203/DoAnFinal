@@ -10,6 +10,7 @@ import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
 from ..context import HealingContext
+from .storage_service import StorageService  # NEW
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ KB_TABLE = "public.healing_knowledge"
 HEAL_EVENT_TABLE = f"{SCHEMA}.heal_event"
 TEST_RUN_HISTORY_TABLE = f"{SCHEMA}.test_run_history"
 LOCATOR_INSTABILITY_TABLE = f"{SCHEMA}.locator_instability"
+VISUAL_VALIDATION_TABLE = f"{SCHEMA}.visual_validation_event"  # NEW
 
 
 class PersistenceService:
@@ -40,12 +42,17 @@ class PersistenceService:
     4) locator_instability
         - update tỉ lệ bất ổn theo locator_old
 
+    5) visual_validation_event (MỚI)
+        - log_visual_validation_event: lưu SSIM/metric + URL ảnh (baseline/current/diff)
+
     NOTE:
     - Không còn schema legacy knowledge_base / self_heal_history / project / fingerprint
     """
 
     def __init__(self, db_config: Dict[str, Any]):
         self.conn = None
+        self.storage_service: Optional[StorageService] = None
+
         try:
             cfg = {**db_config}
             cfg.setdefault("host", os.environ.get("REPORT_DB_HOST", "localhost"))
@@ -72,6 +79,27 @@ class PersistenceService:
         except Exception as e:
             logger.error(f"[PersistenceService] Lỗi khởi tạo: {e}")
             self.conn = None
+
+        # NEW: StorageService dùng để upload ảnh (baseline/current/diff) và trả URL
+        try:
+            base_public_url = os.getenv(
+                "VISUAL_BASE_URL", "http://localhost:8000/static/visual"
+            )
+            base_dir = os.getenv(
+                "VISUAL_BASE_DIR", os.path.join(os.getcwd(), "visual_public")
+            )
+            self.storage_service = StorageService(
+                base_public_url=base_public_url, base_dir=base_dir
+            )
+            logger.info(
+                f"[PersistenceService] StorageService sẵn sàng. BASE_URL={base_public_url}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[PersistenceService] Không thể khởi tạo StorageService: {e}",
+                exc_info=True,
+            )
+            self.storage_service = None
 
     # ----------------------------------------------------------------------
     # Helpers
@@ -129,7 +157,9 @@ class PersistenceService:
                 self.conn.rollback()
             return []
 
-    def save_raw_run_and_get_id(self, test_id: str, app_version: str | None = None) -> Optional[int]:
+    def save_raw_run_and_get_id(
+        self, test_id: str, app_version: str | None = None
+    ) -> Optional[int]:
         """
         Ghi bản ghi raw trước khi chạy test.
         """
@@ -185,6 +215,7 @@ class PersistenceService:
     ):
         """
         Sau khi heal xong (SUCCESS/FAILURE), update run_history.
+        - raw_result luôn bị set thành 'Fail' vì đã cần đến self-healing.
         """
         if not self.conn:
             return
@@ -203,10 +234,15 @@ class PersistenceService:
                         total_heal_success  = total_heal_success + %s
                     WHERE id = %s;
                 """
-                cur.execute(update_sql, (heal_success, risk_score, 1 if heal_success else 0, run_id))
+                cur.execute(
+                    update_sql,
+                    (heal_success, risk_score, 1 if heal_success else 0, run_id),
+                )
             self.conn.commit()
         except Exception as e:
-            logger.error(f"[PersistenceService] _update_run_history_on_heal_status lỗi: {e}")
+            logger.error(
+                f"[PersistenceService] _update_run_history_on_heal_status lỗi: {e}"
+            )
             if self.conn:
                 self.conn.rollback()
 
@@ -215,6 +251,9 @@ class PersistenceService:
     ):
         """
         Update final_result khi test kết thúc.
+        Đồng thời:
+          - Nếu final_status='Pass' và total_heal_attempts=0 và raw_result='N/A'
+            => coi như test gốc pass không cần heal -> raw_result='Pass'.
         """
         if not self.conn:
             return
@@ -222,14 +261,26 @@ class PersistenceService:
             with self.conn.cursor() as cur:
                 update_sql = f"""
                     UPDATE {TEST_RUN_HISTORY_TABLE}
-                    SET final_result = %s,
-                        total_duration_ms = COALESCE(%s, total_duration_ms)
+                    SET
+                        final_result      = %s,
+                        total_duration_ms = COALESCE(%s, total_duration_ms),
+                        raw_result = CASE
+                            WHEN total_heal_attempts = 0
+                                 AND %s = 'Pass'
+                                 AND raw_result = 'N/A'
+                            THEN 'Pass'
+                            ELSE raw_result
+                        END
                     WHERE id = %s;
                 """
-                cur.execute(update_sql, (final_status, total_duration_ms, run_id))
+                cur.execute(
+                    update_sql, (final_status, total_duration_ms, final_status, run_id)
+                )
             self.conn.commit()
         except Exception as e:
-            logger.error(f"[PersistenceService] update_run_history_final_status lỗi: {e}")
+            logger.error(
+                f"[PersistenceService] update_run_history_final_status lỗi: {e}"
+            )
             if self.conn:
                 self.conn.rollback()
 
@@ -399,7 +450,9 @@ class PersistenceService:
                 cur.execute(sql, params)
             self.conn.commit()
         except Exception as e:
-            logger.error(f"[PersistenceService] _update_locator_instability lỗi: {e}")
+            logger.error(
+                f"[PersistenceService] _update_locator_instability lỗi: {e}"
+            )
             if self.conn:
                 self.conn.rollback()
 
@@ -461,11 +514,22 @@ class PersistenceService:
         """
 
         params = (
-            run_id, test_id, None, page_url, app_version,
-            engine, locator_old, locator_new, chosen_source,
-            confidence, risk_score, threshold,
-            ssim_score, visual_status,
-            started_at, ended_at,
+            run_id,
+            test_id,
+            None,
+            page_url,
+            app_version,
+            engine,
+            locator_old,
+            locator_new,
+            chosen_source,
+            confidence,
+            risk_score,
+            threshold,
+            ssim_score,
+            visual_status,
+            started_at,
+            ended_at,
             getattr(context, "native_overhead_ms", None),
             getattr(context, "python_overhead_ms", None),
             Json(basis_json or {}),
@@ -477,8 +541,112 @@ class PersistenceService:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params)
             self.conn.commit()
+
+            # NEW: mọi heal_event đều cập nhật test_run_history
+            if run_id is not None:
+                try:
+                    self._update_run_history_on_heal_status(
+                        run_id=run_id,
+                        heal_status="SUCCESS" if success else "FAILURE",
+                        risk_score=risk_score,
+                    )
+                except Exception as e2:
+                    logger.error(
+                        "[PersistenceService] Lỗi update_run_history_on_heal_status trong _insert_heal_event: %s",
+                        e2,
+                    )
+
         except Exception as e:
             logger.error(f"[PersistenceService] _insert_heal_event lỗi: {e}")
+            if self.conn:
+                self.conn.rollback()
+
+    # ----------------------------------------------------------------------
+    # 5) visual_validation_event (NEW)
+    # ----------------------------------------------------------------------
+    def log_visual_validation_event(
+        self,
+        *,
+        test_id: str | None,
+        run_id: int | None,
+        scope: str,  # 'ELEMENT' | 'FULLSCREEN'
+        target_name: str,
+        page_url: str | None,
+        status: str,
+        ssim_score: float | None = None,
+        extra_metrics: Dict[str, Any] | None = None,
+        baseline_path: Optional[str] = None,
+        current_path: Optional[str] = None,
+        diff_path: Optional[str] = None,
+    ):
+        """
+        Lưu event visual validation (element/fullscreen) vào DB.
+        Ảnh được upload qua StorageService -> URL. DB chỉ giữ URL.
+        """
+        if not self.conn:
+            return
+
+        baseline_url = current_url = diff_url = None
+
+        if self.storage_service:
+            try:
+                from pathlib import Path
+
+                if baseline_path:
+                    baseline_url = self.storage_service.upload_file(
+                        Path(baseline_path), scope.lower()
+                    )
+                if current_path:
+                    current_url = self.storage_service.upload_file(
+                        Path(current_path), scope.lower()
+                    )
+                if diff_path:
+                    diff_url = self.storage_service.upload_file(
+                        Path(diff_path), scope.lower()
+                    )
+            except Exception as e:
+                logger.error(
+                    f"[PersistenceService] Upload visual file lỗi: {e}",
+                    exc_info=True,
+                )
+
+        sql = f"""
+            INSERT INTO {VISUAL_VALIDATION_TABLE} (
+                test_id, run_id, scope, target_name,
+                page_url, status, ssim_score, extra_metrics,
+                baseline_url, current_url, diff_url
+            )
+            VALUES (
+                %s, %s, %s, %s,
+                %s, %s, %s, %s,
+                %s, %s, %s
+            );
+        """
+
+        params = (
+            test_id,
+            run_id,
+            scope,
+            target_name,
+            page_url,
+            status,
+            ssim_score,
+            Json(extra_metrics or {}),
+            baseline_url,
+            current_url,
+            diff_url,
+        )
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, params)
+            self.conn.commit()
+            logger.info(
+                f"[PersistenceService] Đã log visual_validation_event: "
+                f"scope={scope}, target={target_name}, status={status}, ssim={ssim_score}"
+            )
+        except Exception as e:
+            logger.error(f"[PersistenceService] log_visual_validation_event lỗi: {e}")
             if self.conn:
                 self.conn.rollback()
 
@@ -498,13 +666,11 @@ class PersistenceService:
         Gọi khi heal SUCCESS (native hoặc python).
         """
         test_ctx = self._extract_test_context(context)
-        run_id = test_ctx.get("run_id")
-        risk = getattr(context, "risk_score", None)
 
         locator_old_str = self._fmt_locator(*original_locator)
         locator_new_str = self._fmt_locator(*healed_locator)
 
-        # 1) insert heal_event
+        # 1) insert heal_event (đồng thời update test_run_history bên trong)
         self._insert_heal_event(
             context=context,
             engine=engine,
@@ -541,12 +707,7 @@ class PersistenceService:
             success=True,
         )
 
-        # 4) update run_history heal_status
-        if run_id is not None:
-            self._update_run_history_on_heal_status(
-                run_id=run_id, heal_status="SUCCESS", risk_score=risk
-            )
-
+        # 4) run_history đã được update trong _insert_heal_event
         logger.info("[PersistenceService] Đã lưu heal SUCCESS (workflow mới).")
 
     def log_healing_failure(
@@ -560,13 +721,11 @@ class PersistenceService:
         Gọi khi heal FAILURE hoặc Decision REJECTED.
         """
         test_ctx = self._extract_test_context(context)
-        run_id = test_ctx.get("run_id")
-        risk = getattr(context, "risk_score", None)
 
         broken = getattr(context, "broken_locator", ("unknown", "unknown"))
         locator_old_str = self._fmt_locator(*broken)
 
-        # 1) insert heal_event
+        # 1) insert heal_event (đồng thời update test_run_history bên trong)
         self._insert_heal_event(
             context=context,
             engine=engine,
@@ -604,12 +763,7 @@ class PersistenceService:
             success=False,
         )
 
-        # 4) update run_history
-        if run_id is not None:
-            self._update_run_history_on_heal_status(
-                run_id=run_id, heal_status="FAILURE", risk_score=risk
-            )
-
+        # 4) run_history đã được update trong _insert_heal_event
         logger.info(f"[PersistenceService] Đã lưu heal FAILURE (reason={reason}).")
 
     # ----------------------------------------------------------------------
