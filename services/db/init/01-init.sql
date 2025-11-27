@@ -288,3 +288,18 @@ GRANT ALL ON SEQUENCES TO healenium_user;
 -- ====================================================================================
 -- DONE
 -- ====================================================================================
+CREATE TABLE custom_analytics.visual_validation_event (
+    id              SERIAL PRIMARY KEY,
+    test_id         TEXT,
+    run_id          INTEGER,
+    scope           TEXT,            -- 'ELEMENT' | 'FULLSCREEN'
+    target_name     TEXT,            -- element_name hoặc page_name
+    page_url        TEXT,
+    status          TEXT,            -- PASSED / FAILED / NEW_BASELINE / SOFT_ACCEPT / ERROR
+    ssim_score      NUMERIC(5,4),
+    extra_metrics   JSONB,           -- fullscreen: edge_diff, matches...
+    baseline_url    TEXT,            -- URL ảnh baseline trên cloud / static host
+    current_url     TEXT,            -- URL ảnh hiện tại
+    diff_url        TEXT,            -- URL ảnh diff (nếu có)
+    created_at      TIMESTAMPTZ DEFAULT NOW()
+);

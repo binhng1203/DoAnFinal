@@ -16,14 +16,23 @@ LocatorCandidate = Dict[str, Any]
 @dataclass
 class HealingContext:
     """
-    Đối tượng mang toàn bộ thông tin cho 1 lần self-healing Python (tầng 2).
+    Đối tượng mang toàn bộ thông tin cho 1 lần self-healing Python (tầng 2),
+    và có thể được tái sử dụng để log thêm các sự kiện liên quan (vd: fullscreen validation).
 
     - driver: WebDriver hiện tại (đang trỏ qua Healenium proxy 8085).
-    - broken_locator: locator gốc đã bị lỗi (by, value).
-    - element_name: tên logic của phần tử (dùng cho ValidationLayer & logging).
+    - broken_locator: locator gốc đã bị lỗi (by, value). Đối với một số sự kiện
+      không gắn với locator cụ thể (vd: fullscreen validation), có thể truyền
+      giá trị placeholder như (None, None).
+    - element_name: tên logic của phần tử (hoặc tên logic trang, ví dụ "__page__:checkout_success").
     - test_context: dict chứa thông tin test (test_id, run_id, priority, commit_info, page_url, ...).
 
-    Các field còn lại được pipeline lần lượt điền trong quá trình xử lý.
+    Các field còn lại được pipeline lần lượt điền trong quá trình xử lý:
+    - fingerprint, *_candidates: dữ liệu từ SuggestionLayer / HealingLayer.
+    - chosen_locator, best_candidate, source_of_chosen, confidence_of_chosen:
+      kết quả cuối cùng của DecisionLayer.
+    - visual_validation_status, validation_scope: kết quả validation hình ảnh
+      (element-level / fullscreen).
+    - healing_duration_ms: thời gian thực thi pipeline (hoặc event) tính bằng ms.
     """
 
     driver: WebDriver
@@ -40,7 +49,7 @@ class HealingContext:
     # --- quyết định cuối cùng & phần tử đã heal ---
     chosen_locator: Optional[Locator] = None
     best_candidate: Optional[LocatorCandidate] = None
-    source_of_chosen: Optional[str] = None
+    source_of_chosen: Optional[str] = None  # "suggestion_kb" / "heuristic" / ...
     confidence_of_chosen: Optional[float] = None
     raw_score: Optional[float] = None
     healed_element: Optional[WebElement] = None
@@ -49,10 +58,15 @@ class HealingContext:
     risk_score: Optional[float] = None
     adaptive_threshold: Optional[float] = None
     decision_status: Optional[str] = None  # 'ACCEPTED' / 'SOFT_ACCEPT' / 'REJECTED'
-    final_status: Optional[str] = None     # 'SUCCESS' / 'FAILURE'
+    final_status: Optional[str] = None     # 'SUCCESS' / 'FAILURE' / hoặc status khác nếu dùng lại context
 
     # --- validation hình ảnh ---
-    visual_validation_status: Optional[str] = None  # 'PASSED' / 'FAILED' / 'NEW_BASELINE' / 'ERROR'
+    # element-level:  'PASSED' / 'SOFT_ACCEPT' / 'FAILED' / 'NEW_BASELINE' / 'ERROR'
+    # fullscreen:     'PASSED' / 'DRIFT' / 'FAILED' / 'NEW_BASELINE' / 'ERROR'
+    visual_validation_status: Optional[str] = None
+
+    # NEW: phạm vi validation: 'ELEMENT' / 'FULLSCREEN' / None
+    validation_scope: Optional[str] = None
 
     # --- thông tin phụ ---
     page_url: Optional[str] = None
@@ -81,7 +95,7 @@ class HealingContext:
     # Timer helpers
     # ------------------------------------------------------------------ #
     def start_timer(self) -> None:
-        """Bắt đầu đếm thời gian cho pipeline healing."""
+        """Bắt đầu đếm thời gian cho pipeline healing / event."""
         self._start_time = datetime.utcnow()
 
     def end_timer(self) -> None:
@@ -91,5 +105,5 @@ class HealingContext:
         delta = datetime.utcnow() - self._start_time
         self.healing_duration_ms = int(delta.total_seconds() * 1000)
         logger.info(
-            f"[HealingContext] Thời gian self-healing: {self.healing_duration_ms} ms"
+            f"[HealingContext] Thời gian xử lý: {self.healing_duration_ms} ms"
         )
