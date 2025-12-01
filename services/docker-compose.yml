@@ -19,7 +19,7 @@ services:
       # Quan trọng: Phải có file 01_init_multidb.sql ở đây
       - ./db/init:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d final"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d final" ]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -35,7 +35,9 @@ services:
     env_file: ./user_service/.env
     environment:
       # nếu .env đã tự khai báo DATABASE_URL thì có thể bỏ dòng dưới
-      - DATABASE_URL=postgres://postgres:postgres@system_db:5432/final
+      - DATABASE_URL=postgresql://postgres:postgres@system_db:5432/final
+      - FLASK_APP=run.py
+      - FLASK_DEBUG=1
     depends_on:
       system_db:
         condition: service_healthy
@@ -43,7 +45,8 @@ services:
       - "8001:8000"
     volumes:
       - ./user_service:/app
-    command: sh -c "python manage.py migrate && gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload"
+    command: >
+      sh -c " flask db upgrade &&  gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload "
     networks:
       - app-network
 
@@ -52,7 +55,9 @@ services:
     container_name: project_service_app
     env_file: ./project_service/.env
     environment:
-      - DATABASE_URL=postgres://postgres:postgres@system_db:5432/final
+      - DATABASE_URL=postgresql://postgres:postgres@system_db:5432/final
+      - FLASK_APP=run.py
+      - FLASK_DEBUG=1
     depends_on:
       system_db:
         condition: service_healthy
@@ -60,7 +65,8 @@ services:
       - "8002:8000"
     volumes:
       - ./project_service:/app
-    command: sh -c "python manage.py migrate && gunicorn src.config.wsgi:application -b 0.0.0.0:8000 --reload"
+    command: >
+      sh -c " flask db upgrade &&  gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload "
     networks:
       - app-network
 
