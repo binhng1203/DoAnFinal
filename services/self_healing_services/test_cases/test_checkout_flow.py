@@ -377,17 +377,19 @@ def run_checkout_python_fallback_sim_test(
 
     # ------------------------------------------------------------
     # 5) DÙNG LOCATOR "ẢO" -> Healenium KHÔNG BIẾT, DOM hiện tại không có
+    #    nhưng HealingLayer vẫn suy luận được qua text giống nhau ~ 0.88
     # ------------------------------------------------------------
-    broken_xpath = "//button[normalize-space()='Place Order (Old-Version)']"
+    # LƯU Ý: dùng contains(text(), ...) để HealingLayer._parse_broken_locator
+    # trích được broken_text = "Place Order (Old-Version)".
+    broken_xpath = "//button[contains(text(),'Place Order (Old-Version)')]"
 
     logger.warning(
         "[PythonFallbackSim] Using a NEVER-SEEN / BROKEN locator for Place Order "
-        "to force Healenium + native to FAIL and trigger Python fallback..."
+        "to force native + Healenium to FAIL and trigger PYTHON fallback..."
     )
 
-    # Native (T1) sẽ tìm theo broken_xpath và fail
-    # Healenium proxy không có mapping → cũng không heal được
-    # HealingManager sẽ kích hoạt heal(context) (Tầng 2 - Python)
+    # Tầng 1 (native + Healenium) chắc chắn fail vì DOM không có button chứa text này.
+    # Sau đó HealingManager sẽ kích hoạt pipeline fallback Python (HealingLayer + DecisionLayer).
     place_order_btn = healing_find_func(
         by=By.XPATH,
         value=broken_xpath,
@@ -398,8 +400,10 @@ def run_checkout_python_fallback_sim_test(
     place_order_btn.click()
     logger.info("[PythonFallbackSim] Clicked Place Order via PYTHON FALLBACK candidate.")
 
-    # 6) Verify
+    # 6) Verify end-to-end
     WebDriverWait(driver, 10).until(EC.url_contains("/#/country"))
     assert "/#/country" in driver.current_url
 
-    logger.info(f"=== [PythonFallbackSim] SUCCESS (fallback triggered): {test_id} ===")
+    logger.info(
+        f"=== [PythonFallbackSim] SUCCESS (fallback triggered & healed successfully): {test_id} ==="
+    )

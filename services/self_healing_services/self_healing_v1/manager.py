@@ -2,6 +2,7 @@
 import logging
 from functools import partial
 from typing import Any, Callable, Dict, Optional
+import time
 
 from selenium.common.exceptions import (
     NoSuchElementException,
@@ -285,7 +286,12 @@ class HealingManager:
             raise NoSuchElementException(f"Self-Healing Pipeline Failed: {e}")
 
         finally:
+            # Kết thúc timer của HealingContext (healing_duration_ms)
             context.end_timer()
+
+            # Map healing_duration_ms -> python_overhead_ms để ghi vào heal_event
+            if getattr(context, "healing_duration_ms", None) is not None:
+                context.python_overhead_ms = context.healing_duration_ms
 
             if self.persistence_service:
                 try:
@@ -337,17 +343,21 @@ class HealingManager:
             native_only = bool(test_context.get("native_only", False))
             # cho phép bật/tắt visual check cho element native qua test_context
             visual_check_element = bool(test_context.get("visual_check_element", True))
-            # NEW: cho phép test mô phỏng native-heal và log vào DB
+            # cho phép test mô phỏng native-heal và log vào DB
             native_heal_sim = bool(test_context.get("native_heal_sim", False))
 
             # ==========================
             # TẦNG 1 — Native / Healenium
             # ==========================
+            native_start = time.perf_counter()
             try:
                 el = driver.find_element(by, value)
+                native_end = time.perf_counter()
+                native_overhead_ms = int((native_end - native_start) * 1000)
+
                 logger.info(
                     f"[HealingManager] (T1-native) FOUND: {element_name} "
-                    f"(by={by}, value={value})"
+                    f"(native_overhead_ms={native_overhead_ms}, by={by}, value={value})"
                 )
 
                 # Element-level validation cho native / Healenium
@@ -393,7 +403,7 @@ class HealingManager:
                             exc_info=True,
                         )
 
-                # 🔥 NEW: nếu đây là test mô phỏng native-heal -> log heal_event engine='NATIVE'
+                # 🔥 Nếu là test mô phỏng native-heal -> log heal_event engine='NATIVE'
                 if native_heal_sim and self.persistence_service:
                     try:
                         ctx = HealingContext(
@@ -413,6 +423,9 @@ class HealingManager:
                                 ctx.page_url = driver.current_url
                         except Exception:
                             pass
+
+                        # gắn native_overhead_ms vào context để ghi DB
+                        ctx.native_overhead_ms = native_overhead_ms
 
                         self.persistence_service.log_healing_success(
                             context=ctx,
@@ -436,10 +449,14 @@ class HealingManager:
                 return el
 
             except (NoSuchElementException, WebDriverException) as e:
+                native_end = time.perf_counter()
+                native_overhead_ms = int((native_end - native_start) * 1000)
+
                 # Bắt cả WebDriverException vì Healenium proxy đôi khi wrap lỗi
                 logger.warning(
                     f"[HealingManager] (T1-native) NOT FOUND/NOT HEALED: {element_name} "
-                    f"(by={by}, value={value}). Exception={type(e).__name__}"
+                    f"(native_overhead_ms={native_overhead_ms}, by={by}, value={value}). "
+                    f"Exception={type(e).__name__}"
                 )
 
                 if native_only or not self.enable_python_fallback:
@@ -463,6 +480,9 @@ class HealingManager:
                     element_name=element_name,
                     test_context=test_context,
                 )
+                # gắn native_overhead_ms để ghi vào heal_event
+                context.native_overhead_ms = native_overhead_ms
+
                 return self.heal(context)
 
         return partial(_find_element_with_healing, driver)
@@ -548,6 +568,9 @@ class HealingManager:
         final_status = "Fail"
         run_id = None
 
+        # Đo thời gian bắt đầu test
+        start_ts = time.perf_counter()
+
         if self.persistence_service:
             app_version = kwargs.get("app_version")
             run_id = self.persistence_service.save_raw_run_and_get_id(
@@ -586,12 +609,19 @@ class HealingManager:
         except Exception as e:
             final_status = "Fail"
             logger.error(f"[HealingManager] Test case '{test_id}' thất bại: {e}")
+            # giữ hành vi cũ: vẫn throw ra cho caller
             raise e
 
         finally:
+            # Đo thời gian kết thúc và tính duration
+            end_ts = time.perf_counter()
+            duration_ms = int((end_ts - start_ts) * 1000)
+
             if run_id is not None and self.persistence_service:
                 self.persistence_service.update_run_history_final_status(
-                    run_id=run_id, final_status=final_status
+                    run_id=run_id,
+                    final_status=final_status,
+                    total_duration_ms=duration_ms,
                 )
             elif run_id is None:
                 logger.warning(
