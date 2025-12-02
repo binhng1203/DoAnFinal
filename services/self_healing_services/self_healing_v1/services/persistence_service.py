@@ -398,6 +398,9 @@ class PersistenceService:
         if not self.conn:
             return
 
+        # ✅ Normalize project_id: nếu None thì dùng 0 để ON CONFLICT hoạt động
+        project_id_norm = project_id if project_id is not None else 0
+
         succ_inc = 1 if success else 0
         fail_inc = 0 if success else 1
 
@@ -423,14 +426,14 @@ class PersistenceService:
                 instability_rate = ROUND(
                     ({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)::NUMERIC * 100.0
                     / NULLIF(({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)
-                             + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
+                            + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
                     2
                 ),
                 updated_at = NOW();
         """
 
         params = (
-            project_id,
+            project_id_norm,          # 👈 dùng project_id_norm thay vì project_id
             locator_old,
             fail_inc,
             succ_inc,
@@ -455,6 +458,7 @@ class PersistenceService:
             )
             if self.conn:
                 self.conn.rollback()
+
 
     # ----------------------------------------------------------------------
     # 4) heal_event insert
