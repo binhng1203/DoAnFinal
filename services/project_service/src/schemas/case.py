@@ -1,26 +1,30 @@
 from src.extensions import ma
 from marshmallow import fields, validate
+from src.schemas.step import TestStepSchema
 
 class TestCaseSchema(ma.Schema):
-    case_id = fields.UUID(dump_only=True)
-    suite_id = fields.UUID(dump_only=True) # ID của suite chứa nó
+    case_id = fields.Integer(dump_only=True)
+    suite_id = fields.String(dump_only=True) # UUID dạng string
     
-    name = fields.String(required=True, validate=validate.Length(min=1))
+    name = fields.String(required=True, validate=validate.Length(min=1, max=255))
+    
+    # Validate Enum (BR13.2)
+    priority = fields.String(validate=validate.OneOf(["Low", "Medium", "High"]))
+    type = fields.String(validate=validate.OneOf(["Manual", "Automated"]))
+    
     description = fields.String(allow_none=True)
+    tags = fields.List(fields.String(), allow_none=True) # Mảng String
+    assignee_id = fields.String(allow_none=True)
     
-    # Validate Enum (Khớp với DB Check Constraint)
-    priority = fields.String(
-        validate=validate.OneOf(["High", "Medium", "Low"]), 
-        load_default="Medium"
-    )
-    type = fields.String(
-        validate=validate.OneOf(["manual", "automated"]), 
-        load_default="manual"
-    )
+    is_active = fields.Boolean()
+    fullscreen_page_name = fields.String(allow_none=True)
+    app_version = fields.String(allow_none=True)
+    last_run_status = fields.String(dump_only=True)
     
-    # Người được giao việc (Assignee)
-    assignee_user_id = fields.UUID(allow_none=True)
+    created_at = fields.DateTime(dump_only=True)
+    updated_at = fields.DateTime(dump_only=True)
+    created_by = fields.String(dump_only=True)
+    updated_by = fields.String(dump_only=True)
 
-class TestCaseListSchema(TestCaseSchema):
-    # Schema rút gọn dùng cho danh sách (nếu cần)
-    pass
+    # Nested: Khi get Case sẽ lấy luôn Steps
+    steps = fields.Nested(TestStepSchema, many=True, dump_only=True)

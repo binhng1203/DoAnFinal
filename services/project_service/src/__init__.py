@@ -20,6 +20,6 @@ def create_app(config_class=Config):
 
     @app.route("/healthz")
     def health_check():
-        return "User Service (Flask) is OK!", 200
+        return "Project Service (Flask) is OK!", 200
 
     return app

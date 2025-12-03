@@ -94,7 +94,7 @@ ALTER TYPE heal_engine OWNER TO app_user;
 CREATE TABLE IF NOT EXISTS public.healing_knowledge (
   id                BIGSERIAL PRIMARY KEY,
 
-  project_id        BIGINT,                              -- optional (code passes None)
+  project_id        VARCHAR(8),                              -- optional (code passes None)
   fingerprint       JSONB NOT NULL,                      -- Json(fingerprint)
 
   old_locator_by    VARCHAR(50) NOT NULL,
@@ -303,3 +303,4 @@ CREATE TABLE custom_analytics.visual_validation_event (
     diff_url        TEXT,            -- URL ảnh diff (nếu có)
     created_at      TIMESTAMPTZ DEFAULT NOW()
 );
+

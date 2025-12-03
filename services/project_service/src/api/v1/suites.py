@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from src.extensions import db
-from src.models.project import TestSuite, Project
+from src.models.project import TestSuite
 from src.schemas.suite import SuiteSchema, SuiteTreeSchema
 from src.utils import check_project_permission
 
