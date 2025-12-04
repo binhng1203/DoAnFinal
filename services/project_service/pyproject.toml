@@ -1,7 +1,7 @@
 [tool.poetry]
-name = "user-service-flask"
+name = "project-service-flask"
 version = "0.1.0"
-description = "User Service migration to Flask"
+description = "Project Service migration to Flask"
 authors = ["Your Name <you@example.com>"]
 
 [tool.poetry.dependencies]

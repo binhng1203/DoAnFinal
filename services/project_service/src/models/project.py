@@ -2,6 +2,7 @@ import uuid
 import string
 import secrets
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy import CheckConstraint
 from src.extensions import db
@@ -78,22 +79,55 @@ class TestSuite(db.Model):
 
 class TestCase(db.Model):
     __tablename__ = 'test_cases'
-    __table_args__ = (
-        # Ràng buộc CHECK cho priority và type [cite: 24]
-        CheckConstraint("priority IN ('High', 'Medium', 'Low')", name='check_priority_valid'),
-        CheckConstraint("type IN ('manual', 'automated')", name='check_type_valid'),
-        {'schema': 'management'}
-    )
+    __table_args__ = {'schema': 'management'}
 
-    # [cite: 24] management.test_cases
-    case_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    case_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     suite_id = db.Column(UUID(as_uuid=True), db.ForeignKey('management.test_suites.suite_id', ondelete='CASCADE'), nullable=False)
     
     name = db.Column(db.String(255), nullable=False)
-    priority = db.Column(db.String(20), default='Medium')
-    type = db.Column(db.String(20), default='manual')
+    priority = db.Column(db.String(20), default='Medium') # Low, Medium, High
+    case_type = db.Column(db.String(20), default='Manual') # Manual, Automated
     description = db.Column(db.Text, nullable=True)
-    assignee_user_id = db.Column(UUID(as_uuid=True), nullable=True) # Logical FK
+    
+    # Metadata mới
+    tags = db.Column(JSONB, default=list) # Lưu mảng các tag: ["smoke", "login"]
+    assignee_id = db.Column(db.String(36), nullable=True) # User ID được assign
+    is_active = db.Column(db.Boolean, default=True)
+    fullscreen_page_name = db.Column(db.String(255), nullable=True)
+    app_version = db.Column(db.String(50), nullable=True)
+    
+    # Trạng thái chạy
+    last_run_status = db.Column(db.String(20), nullable=True) # PASSED, FAILED...
+    
+    created_at = db.Column(db.DateTime(timezone=True), server_default=func.now())
+    updated_at = db.Column(db.DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_by = db.Column(db.String(36), nullable=True)
+    updated_by = db.Column(db.String(36), nullable=True)
+
+    # Quan hệ 1-n với TestStep (Cascade delete: Xóa case thì xóa luôn steps)
+    steps = db.relationship('TestStep', backref='test_case', cascade='all, delete-orphan', order_by='TestStep.step_order')
 
     def __repr__(self):
         return f"<TestCase {self.name}>"
+    
+class TestStep(db.Model):
+    __tablename__ = 'test_steps'
+    __table_args__ = {'schema': 'management'}
+
+    step_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    case_id = db.Column(db.Integer, db.ForeignKey('management.test_cases.case_id', ondelete='CASCADE'), nullable=False)
+    
+    step_order = db.Column(db.Integer, nullable=False)
+    action = db.Column(db.String(50), nullable=False) # Click, Type, Open...
+    
+    locator_type = db.Column(db.String(50), nullable=True) # XPath, CSS, ID...
+    locator_value = db.Column(db.Text, nullable=True)
+    
+    value = db.Column(db.Text, nullable=True) # Dữ liệu nhập vào (nếu có)
+    expected = db.Column(db.Text, nullable=True) # Kết quả mong đợi
+    
+    # URL dùng cho hành động Open URL
+    url = db.Column(db.Text, nullable=True)
+
+    def __repr__(self):
+        return f"<TestStep {self.step_order}: {self.action}>"
