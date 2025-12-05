@@ -30,9 +30,9 @@ def get_healing_table():
 # API 1: Xem danh sách
 # ----------------------------------------------------------------------
 @locators_bp.route('', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_locators_list():
-    current_user_id = get_jwt_identity()
+    # current_user_id = get_jwt_identity()
 
     # 1. Load bảng
     t = get_healing_table()
@@ -90,9 +90,9 @@ def get_locators_list():
 # API 2: Xem chi tiết
 # ----------------------------------------------------------------------
 @locators_bp.route('/<int:locator_id>/history', methods=['GET'])
-@jwt_required()
+# @jwt_required()
 def get_locator_detail(locator_id):
-    current_user_id = get_jwt_identity()
+    # current_user_id = get_jwt_identity()
     
     t = get_healing_table()
     
