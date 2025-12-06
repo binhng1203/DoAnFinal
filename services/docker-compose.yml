@@ -26,6 +26,26 @@ services:
     networks:
       - app-network
 
+  db-init:
+    image: postgres:16
+    container_name: db_init_final
+    depends_on:
+      system_db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./db/init:/init-sql
+    command: >
+      bash -c "
+        echo 'Running DB init script...' &&
+        psql -h system_db -U postgres -d final -f /init-sql/01-init.sql &&
+        echo 'DB init done'
+      "
+    networks:
+      - app-network
+    restart: "no"
+
   # ============================================================
   # 2. WEB SERVICES GROUP
   # ============================================================
@@ -67,26 +87,6 @@ services:
       - ./project_service:/app
     command: >
       sh -c " flask db upgrade &&  gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload "
-    networks:
-      - app-network
-
-  test-runner-service:
-    build: ./self_healing_services
-    container_name: test_runner_app
-    environment:
-      # Kết nối các service nội bộ Docker
-      - DB_HOST=system_db
-      - DB_USER=app_user
-      - DB_PASSWORD=app_password
-      - HEALENIUM_HOST=http://healenium-backend:7878
-      - SELENIUM_HOST=http://selenium-hub:4444/wd/hub
-    depends_on:
-      system_db:
-        condition: service_healthy
-    ports:
-      - "8003:8000"  
-    volumes:
-      - ./self_healing_services:/app
     networks:
       - app-network
 
