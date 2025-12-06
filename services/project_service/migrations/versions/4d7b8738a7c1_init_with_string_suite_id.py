@@ -1,8 +1,8 @@
-"""Initial Schema from Scratch
+"""Init with String Suite ID
 
-Revision ID: dff3c03079fd
+Revision ID: 4d7b8738a7c1
 Revises: 
-Create Date: 2025-12-03 12:20:09.579855
+Create Date: 2025-12-06 10:29:23.142836
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'dff3c03079fd'
+revision = '4d7b8738a7c1'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -39,32 +39,32 @@ def upgrade():
     schema='management'
     )
     op.create_table('test_suites',
-    sa.Column('suite_id', sa.UUID(), nullable=False),
+    sa.Column('suite_id', sa.String(length=255), nullable=False),
     sa.Column('project_id', sa.String(length=8), nullable=False),
-    sa.Column('parent_suite_id', sa.UUID(), nullable=True),
+    sa.Column('parent_suite_id', sa.String(length=255), nullable=True),
     sa.Column('name', sa.String(length=255), nullable=False),
-    sa.ForeignKeyConstraint(['parent_suite_id'], ['management.test_suites.suite_id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['parent_suite_id'], ['management.test_suites.suite_id'], ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['project_id'], ['management.projects.project_id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('suite_id'),
     schema='management'
     )
     op.create_table('test_cases',
     sa.Column('case_id', sa.Integer(), autoincrement=True, nullable=False),
-    sa.Column('suite_id', sa.UUID(), nullable=False),
+    sa.Column('suite_id', sa.String(length=255), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('priority', sa.String(length=20), nullable=True),
     sa.Column('case_type', sa.String(length=20), nullable=True),
     sa.Column('description', sa.Text(), nullable=True),
     sa.Column('tags', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-    sa.Column('assignee_id', sa.String(length=8), nullable=True),
+    sa.Column('assignee_id', sa.String(length=36), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('fullscreen_page_name', sa.String(length=255), nullable=True),
     sa.Column('app_version', sa.String(length=50), nullable=True),
     sa.Column('last_run_status', sa.String(length=20), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
     sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.Column('created_by', sa.String(length=8), nullable=True),
-    sa.Column('updated_by', sa.String(length=8), nullable=True),
+    sa.Column('created_by', sa.String(length=36), nullable=True),
+    sa.Column('updated_by', sa.String(length=36), nullable=True),
     sa.ForeignKeyConstraint(['suite_id'], ['management.test_suites.suite_id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('case_id'),
     schema='management'

@@ -27,14 +27,20 @@ def create_suite(project_id):
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 400
 
-    # 2. Validate Parent Suite (Nếu có)
+    # 2. Check trùng ID (Primary Key check)
+    # Vì user tự nhập ID nên bắt buộc phải check xem ID này đã tồn tại chưa
+    existing_id = TestSuite.query.get(data['suite_id'])
+    if existing_id:
+        return jsonify({"error": f"Suite ID '{data['suite_id']}' already exists"}), 409
+
+    # 3. Validate Parent Suite (Nếu có)
     parent_id = data.get('parent_suite_id')
     if parent_id:
         parent = TestSuite.query.filter_by(suite_id=parent_id, project_id=project_id).first()
         if not parent:
             return jsonify({"error": "Parent suite not found in this project"}), 404
 
-    # 3. Check trùng tên (Trong cùng 1 cấp cha) - BR9.1
+    # 4. Check trùng tên (Trong cùng 1 cấp cha) - BR9.1
     # Logic: Cùng cha thì không được trùng tên
     existing = TestSuite.query.filter_by(
         project_id=project_id, 
@@ -46,6 +52,7 @@ def create_suite(project_id):
 
     try:
         new_suite = TestSuite(
+            suite_id=data['suite_id'],
             project_id=project_id,
             name=data['name'],
             parent_suite_id=parent_id
@@ -80,7 +87,7 @@ def get_suite_tree(project_id):
 
 # --- 3. CẬP NHẬT TEST SUITE ---
 # URL: /api/v1/suites/<suite_id>
-@suites_bp.route('/suites/<uuid:suite_id>', methods=['PUT'])
+@suites_bp.route('/suites/<string:suite_id>', methods=['PUT'])
 @jwt_required()
 def update_suite(suite_id):
     """
@@ -137,7 +144,7 @@ def update_suite(suite_id):
 
 # --- 4. XÓA TEST SUITE ---
 # URL: /api/v1/suites/<suite_id>
-@suites_bp.route('/suites/<uuid:suite_id>', methods=['DELETE'])
+@suites_bp.route('/suites/<string:suite_id>', methods=['DELETE'])
 @jwt_required()
 def delete_suite(suite_id):
     """

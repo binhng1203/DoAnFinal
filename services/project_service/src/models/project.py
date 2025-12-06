@@ -56,12 +56,12 @@ class TestSuite(db.Model):
     __table_args__ = {'schema': 'management'}
 
     # [cite: 24] management.test_suites
-    suite_id = db.Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    suite_id = db.Column(db.String(255), primary_key=True)
     project_id = db.Column(db.String(8), db.ForeignKey('management.projects.project_id', ondelete='CASCADE'), nullable=False)
     
     # Self-referential FK (Thư mục cha - con)
     #[cite: 24]: parent_suite_id ON DELETE SET NULL
-    parent_suite_id = db.Column(UUID(as_uuid=True), db.ForeignKey('management.test_suites.suite_id', ondelete='SET NULL'), nullable=True)
+    parent_suite_id = db.Column(db.String(255), db.ForeignKey('management.test_suites.suite_id', ondelete='CASCADE'), nullable=True)
     
     name = db.Column(db.String(255), nullable=False)
 
@@ -82,7 +82,7 @@ class TestCase(db.Model):
     __table_args__ = {'schema': 'management'}
 
     case_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    suite_id = db.Column(UUID(as_uuid=True), db.ForeignKey('management.test_suites.suite_id', ondelete='CASCADE'), nullable=False)
+    suite_id = db.Column(db.String(255), db.ForeignKey('management.test_suites.suite_id', ondelete='CASCADE'), nullable=False)
     
     name = db.Column(db.String(255), nullable=False)
     priority = db.Column(db.String(20), default='Medium') # Low, Medium, High
