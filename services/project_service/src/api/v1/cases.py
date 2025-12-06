@@ -11,7 +11,7 @@ cases_bp = Blueprint('cases', __name__)
 
 # --- 1. LẤY DANH SÁCH & TẠO TEST CASE (Trong 1 Suite) ---
 # URL: /api/v1/suites/<suite_id>/cases
-@cases_bp.route('/suites/<uuid:suite_id>/cases', methods=['GET', 'POST'])
+@cases_bp.route('/suites/<string:suite_id>/cases', methods=['GET', 'POST'])
 @jwt_required()
 def handle_suite_cases(suite_id):
     current_user_id = get_jwt_identity()

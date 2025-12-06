@@ -72,3 +72,28 @@ def update_my_profile():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": "Internal Error", "details": str(e)}), 500
+    
+@users_bp.route('/basic-info', methods=['POST'])
+def get_users_basic_info():
+    """
+    Internal API: Lấy thông tin cơ bản cho danh sách ID
+    Input: { "user_ids": ["uuid-1", "uuid-2"] }
+    Output: { "uuid-1": {"fullname": "A", "email": "a@..."}, ... }
+    """
+    data = request.get_json()
+    user_ids = data.get('user_ids', [])
+    
+    if not user_ids:
+        return jsonify({}), 200
+
+    # Query DB dùng hàm IN
+    users = User.query.filter(User.user_id.in_(user_ids)).all()
+    
+    # Map kết quả thành Dictionary để dễ tra cứu
+    result = {}
+    for u in users:
+        result[str(u.user_id)] = {
+            "fullname": u.fullname
+        }
+        
+    return jsonify(result), 200

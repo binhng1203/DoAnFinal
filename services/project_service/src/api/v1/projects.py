@@ -1,3 +1,5 @@
+import os
+import requests
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from src.extensions import db
@@ -210,21 +212,62 @@ def add_member(project_id):
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
 
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://user-service:8000")
+
 @projects_bp.route('/<project_id>/members', methods=['GET'])
 @jwt_required()
 def list_members(project_id):
     """
-    PS_07: Xem danh sách thành viên
+    PS_07: Xem danh sách thành viên (Kèm thông tin chi tiết từ User Service)
     """
     current_user_id = get_jwt_identity()
     
-    # Check quyền xem
+    # 1. Check quyền xem
     member, error, code = check_project_permission(project_id, current_user_id)
     if error: return error, code
 
-    # Query members
+    # 2. Query members từ DB nội bộ
     members = ProjectMember.query.filter_by(project_id=project_id).all()
-    return jsonify(MemberResponseSchema(many=True).dump(members)), 200
+    
+    if not members:
+        return jsonify([]), 200
+
+    # 3. Serialize dữ liệu cơ bản bằng Schema cũ
+    # (Biến members_data sẽ là list các dict chứa user_id, role, joined_at...)
+    members_data = MemberResponseSchema(many=True).dump(members)
+
+    # =========================================================
+    # LOGIC MỚI: GỌI SANG USER SERVICE ĐỂ LẤY TÊN 
+    # =========================================================
+    
+    # B1: Gom tất cả user_id lại
+    user_ids = [m['user_id'] for m in members_data]
+    
+    # B2: Gọi API nội bộ của User Service
+    user_info_map = {}
+    try:
+        response = requests.post(
+            f"{USER_SERVICE_URL}/api/v1/users/basic-info",
+            json={"user_ids": user_ids}
+        )
+
+        if response.status_code == 200:
+            user_info_map = response.json()
+        else:
+            print(f"User Service returned error: {response.status_code}")
+    except Exception as e:
+        print(f"Failed to call User Service: {e}")
+        # Nếu lỗi, user_info_map vẫn rỗng, code bên dưới sẽ hiển thị "Unknown"
+
+    # B3: Ghép thông tin (Merge)
+    for m in members_data:
+        uid = str(m['user_id'])
+        # Lấy thông tin từ map, nếu không có thì fallback giá trị mặc định
+        info = user_info_map.get(uid, {})
+        
+        m['fullname'] = info.get('fullname', 'Unknown User')
+
+    return jsonify(members_data), 200
 
 @projects_bp.route('/<project_id>/members/<uuid:user_id>', methods=['DELETE'])
 @jwt_required()
