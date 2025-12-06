@@ -8,6 +8,7 @@ class ProjectSchema(ma.Schema):
     description = fields.String(allow_none=True)
     repo_url = fields.String(allow_none=True)
     created_at = fields.DateTime(dump_only=True)
+    created_by_user_id = fields.String(dump_only=True, data_key="user_id_create")
     # Role của user hiện tại trong project này (dùng khi list)
     my_role = fields.String(dump_only=True)
 

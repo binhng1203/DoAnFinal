@@ -3,11 +3,11 @@ from marshmallow import fields, validate
 
 # Schema validate khi Tạo/Sửa Suite
 class SuiteSchema(ma.Schema):
-    suite_id = fields.UUID(dump_only=True)
+    suite_id = fields.String(required=True, validate=validate.Length(min=1, max=255))
     project_id = fields.String(dump_only=True)
     
     name = fields.String(required=True, validate=validate.Length(min=1))
-    parent_suite_id = fields.UUID(allow_none=True, load_default=None) # Có thể null nếu là Root
+    parent_suite_id = fields.String(allow_none=True)
     
     # Số lượng test case bên trong (Optional - để hiển thị cho đẹp)
     test_case_count = fields.Integer(dump_only=True)
