@@ -26,6 +26,26 @@ services:
     networks:
       - app-network
 
+  db-init:
+    image: postgres:16
+    container_name: db_init_final
+    depends_on:
+      system_db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: postgres
+    volumes:
+      - ./db/init:/init-sql
+    command: >
+      bash -c "
+        echo 'Running DB init script...' &&
+        psql -h system_db -U postgres -d final -f /init-sql/01-init.sql &&
+        echo 'DB init done'
+      "
+    networks:
+      - app-network
+    restart: "no"
+
   # ============================================================
   # 2. WEB SERVICES GROUP
   # ============================================================

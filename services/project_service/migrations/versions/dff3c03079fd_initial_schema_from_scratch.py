@@ -83,11 +83,12 @@ def upgrade():
     sa.PrimaryKeyConstraint('step_id'),
     schema='management'
     )
-    with op.batch_alter_table('healing_knowledge', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('idx_kb_app_version'))
+    # with op.batch_alter_table('healing_knowledge', schema='Public') as batch_op:
+    #     # batch_op.drop_index(batch_op.f('idx_kb_app_version'))
+    #     op.execute("DROP INDEX IF EXISTS idx_kb_app_version")
 
-    op.drop_table('healing_knowledge')
-    # ### end Alembic commands ###
+    # op.drop_table('healing_knowledge')
+    # # ### end Alembic commands ###
 
 
 def downgrade():
@@ -115,8 +116,8 @@ def downgrade():
     sa.PrimaryKeyConstraint('id', name=op.f('healing_knowledge_pkey')),
     sa.UniqueConstraint('fingerprint', 'old_locator_value', 'new_locator_value', name=op.f('uq_kb'), postgresql_include=[], postgresql_nulls_not_distinct=False)
     )
-    with op.batch_alter_table('healing_knowledge', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('idx_kb_app_version'), ['app_version'], unique=False)
+    # with op.batch_alter_table('healing_knowledge', schema=None) as batch_op:
+    #     batch_op.create_index(batch_op.f('idx_kb_app_version'), ['app_version'], unique=False)
 
     op.drop_table('test_steps', schema='management')
     op.drop_table('test_cases', schema='management')

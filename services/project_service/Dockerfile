@@ -17,4 +17,5 @@ COPY . /app
 EXPOSE 8000
 
 # Lệnh chạy mặc định (Sẽ bị override bởi docker-compose)
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "run:app"]
+# CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:8000", "run:app"]
+CMD ["python3", "-m", "flask", "run", "--host=0.0.0.0", "--port=8000"]

@@ -288,7 +288,7 @@ GRANT ALL ON SEQUENCES TO healenium_user;
 -- ====================================================================================
 -- DONE
 -- ====================================================================================
-CREATE TABLE custom_analytics.visual_validation_event (
+CREATE TABLE IF NOT EXISTS custom_analytics.visual_validation_event (
     id              SERIAL PRIMARY KEY,
     test_id         TEXT,
     run_id          INTEGER,

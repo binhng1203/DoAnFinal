@@ -4,6 +4,7 @@
 # --- Web Server & API ---
 # Dùng cho Module 1 để nhận webhook từ Git
 Flask==3.0.3
+flask-cors
 # Dùng cho Module 2 để xây dựng API cho Cloud Knowledge Base
 fastapi==0.104.1
 # Server ASGI để chạy ứng dụng FastAPI
