@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 2025-12-06 05:10:36.579  INFO 7 - [       main] c.epam.healenium.Application     : Starting Application v3.4.10 using Java 23.0.2 with PID 7 (/healenium-backend.jar started by root in /) 
 2025-12-06 05:10:36.837  INFO 7 - [       main] c.epam.healenium.Application     : No active profile set, falling back to 1 default profile: "default" 
 2025-12-06 05:10:49.294  INFO 7 - [       main] .RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode. 
@@ -528,3 +529,42 @@
 2025-12-06 19:05:51.635  INFO 7 - [       main] .s.b.a.e.w.EndpointLinksResolver : Exposing 1 endpoint beneath base path '/actuator' 
 2025-12-06 19:05:51.943  INFO 7 - [       main] o.s.b.w.e.t.TomcatWebServer      : Tomcat started on port 7878 (http) with context path '/' 
 2025-12-06 19:05:52.173  INFO 7 - [       main] c.epam.healenium.Application     : Started Application in 51.118 seconds (process running for 57.658) 
+=======
+2025-12-07 05:02:48.169  INFO 7 - [       main] c.epam.healenium.Application     : Starting Application v3.4.10 using Java 23.0.2 with PID 7 (/healenium-backend.jar started by root in /) 
+2025-12-07 05:02:48.510  INFO 7 - [       main] c.epam.healenium.Application     : No active profile set, falling back to 1 default profile: "default" 
+2025-12-07 05:02:53.709  INFO 7 - [       main] .RepositoryConfigurationDelegate : Bootstrapping Spring Data JPA repositories in DEFAULT mode. 
+2025-12-07 05:02:54.128  INFO 7 - [       main] .RepositoryConfigurationDelegate : Finished Spring Data repository scanning in 397 ms. Found 4 JPA repository interfaces. 
+2025-12-07 05:02:55.726  INFO 7 - [       main] o.s.b.w.e.t.TomcatWebServer      : Tomcat initialized with port 7878 (http) 
+2025-12-07 05:02:55.763  INFO 7 - [       main] o.a.c.core.StandardService       : Starting service [Tomcat] 
+2025-12-07 05:02:55.764  INFO 7 - [       main] o.a.c.core.StandardEngine        : Starting Servlet engine: [Apache Tomcat/10.1.44] 
+2025-12-07 05:02:55.845  INFO 7 - [       main] o.a.c.c.C.[.[localhost].[/]      : Initializing Spring embedded WebApplicationContext 
+2025-12-07 05:02:55.862  INFO 7 - [       main] rvletWebServerApplicationContext : Root WebApplicationContext: initialization completed in 6933 ms 
+2025-12-07 05:02:56.855  INFO 7 - [       main] c.z.hikari.HikariDataSource      : HikariPool-1 - Starting... 
+2025-12-07 05:02:57.689  INFO 7 - [       main] c.z.hikari.HikariDataSource      : HikariPool-1 - Start completed. 
+2025-12-07 05:02:59.763  INFO 7 - [       main] liquibase.changelog              : Reading from healenium.databasechangelog 
+2025-12-07 05:03:00.110  INFO 7 - [       main] liquibase.ui                     : Database is up to date, no changesets to execute 
+2025-12-07 05:03:00.117  INFO 7 - [       main] liquibase.changelog              : Reading from healenium.databasechangelog 
+2025-12-07 05:03:00.164  INFO 7 - [       main] liquibase.util                   : UPDATE SUMMARY 
+2025-12-07 05:03:00.165  INFO 7 - [       main] liquibase.util                   : Run:                          0 
+2025-12-07 05:03:00.166  INFO 7 - [       main] liquibase.util                   : Previously run:              11 
+2025-12-07 05:03:00.167  INFO 7 - [       main] liquibase.util                   : Filtered out:                 0 
+2025-12-07 05:03:00.168  INFO 7 - [       main] liquibase.util                   : ------------------------------- 
+2025-12-07 05:03:00.170  INFO 7 - [       main] liquibase.util                   : Total change sets:           11 
+2025-12-07 05:03:00.173  INFO 7 - [       main] liquibase.util                   : Update summary generated 
+2025-12-07 05:03:00.178  INFO 7 - [       main] liquibase.command                : Command execution complete 
+2025-12-07 05:03:01.743  INFO 7 - [       main] o.h.j.internal.util.LogHelper    : HHH000204: Processing PersistenceUnitInfo [name: default] 
+2025-12-07 05:03:01.929  INFO 7 - [       main] org.hibernate.Version            : HHH000412: Hibernate ORM core version 6.6.26.Final 
+2025-12-07 05:03:02.068  INFO 7 - [       main] o.h.c.i.RegionFactoryInitiator   : HHH000026: Second-level cache disabled 
+2025-12-07 05:03:02.733  INFO 7 - [       main] .o.j.p.SpringPersistenceUnitInfo : No LoadTimeWeaver setup: ignoring JPA class transformer 
+2025-12-07 05:03:02.764  WARN 7 - [       main] org.hibernate.orm.deprecation    : HHH90000021: Encountered deprecated setting [hibernate.temp.use_jdbc_metadata_defaults], use [hibernate.boot.allow_jdbc_metadata_access] instead 
+2025-12-07 05:03:02.800  WARN 7 - [       main] org.hibernate.orm.deprecation    : HHH90000025: PostgreSQLDialect does not need to be specified explicitly using 'hibernate.dialect' (remove the property setting and it will be selected by default) 
+2025-12-07 05:03:02.826  INFO 7 - [       main] o.h.orm.connections.pooling      : HHH10001005: Database info:\n 	Database JDBC URL [undefined/unknown]\n 	Database driver: undefined/unknown\n 	Database version: 12.0\n 	Autocommit mode: undefined/unknown\n 	Isolation level: <unknown>\n 	Minimum pool size: undefined/unknown\n 	Maximum pool size: undefined/unknown 
+2025-12-07 05:03:04.484  WARN 7 - [       main] o.h.m.internal.MetadataContext   : HHH015011: Unable to locate static metamodel field : com.epam.healenium.model.domain.Selector_#nodePathWrapper; this may or may not indicate a problem with the static metamodel 
+2025-12-07 05:03:04.496  INFO 7 - [       main] h.e.t.j.p.i.JtaPlatformInitiator : HHH000489: No JTA platform available (set 'hibernate.transaction.jta.platform' to enable JTA platform integration) 
+2025-12-07 05:03:04.500  INFO 7 - [       main] ontainerEntityManagerFactoryBean : Initialized JPA EntityManagerFactory for persistence unit 'default' 
+2025-12-07 05:03:04.909  INFO 7 - [       main] o.s.d.j.r.q.QueryEnhancerFactory : Hibernate is in classpath; If applicable, HQL parser will be used. 
+2025-12-07 05:03:05.833  INFO 7 - [       main] .a.w.s.WelcomePageHandlerMapping : Adding welcome page template: index 
+2025-12-07 05:03:06.544  INFO 7 - [       main] .s.b.a.e.w.EndpointLinksResolver : Exposing 1 endpoint beneath base path '/actuator' 
+2025-12-07 05:03:06.754  INFO 7 - [       main] o.s.b.w.e.t.TomcatWebServer      : Tomcat started on port 7878 (http) with context path '/' 
+2025-12-07 05:03:06.883  INFO 7 - [       main] c.epam.healenium.Application     : Started Application in 23.592 seconds (process running for 31.249) 
+>>>>>>> Stashed changes
