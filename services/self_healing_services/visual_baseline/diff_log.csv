@@ -99,3 +99,8 @@ timestamp,element_name,ssim_score,status,width,height
 2025-11-29 10:40:32,CartPage_Input_PromoCode,0.66381,EVALUATED,191,30
 2025-11-29 10:40:32,CartPage_Button_ApplyPromo,1.00000,EVALUATED,72,36
 2025-11-29 10:40:35,CartPage_Button_PlaceOrder,0.00000,EVALUATED,140,36
+2025-12-06 17:54:57,Step_2_click_ctl00_mainContent_DropDownListCurrency,1.00000,NEW_BASELINE,75,43
+2025-12-06 17:58:19,Step_2_click_ctl00_mainContent_DropDownListCurrency,1.00000,EVALUATED,75,43
+2025-12-06 17:58:19,Step_3_type_ctl00_mainContent_DropDownListCurrency,1.00000,NEW_BASELINE,75,43
+2025-12-06 18:01:28,Step_2_click_ctl00_mainContent_DropDownListCurrency,1.00000,EVALUATED,75,43
+2025-12-06 18:01:29,Step_4_click_ctl00_mainContent_chk_friendsandfamily,1.00000,NEW_BASELINE,13,13
