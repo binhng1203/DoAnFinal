@@ -10,6 +10,8 @@ from sqlalchemy import and_
 
 projects_bp = Blueprint('projects', __name__)
 
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://user-service:8000")
+
 # --- 1. QUẢN LÝ DỰ ÁN ---
 
 @projects_bp.route('', methods=['POST'])
@@ -27,9 +29,18 @@ def create_project():
     if errors:
         return jsonify({"error": "Validation failed", "details": errors}), 400
 
+    project_id = data['project_id']
+    existing_project = Project.query.get(project_id)
+    if existing_project:
+        return jsonify({
+            "error": "Project ID conflict", 
+            "message": f"Project ID '{project_id}' already exists. Please regenerate another ID."
+        }), 409
+
     try:
         # 2. Tạo Project (BR1.1, 1.2, 1.3)
         new_project = Project(
+            project_id=project_id,  # <--- Gán ID từ Frontend gửi lên
             name=data['name'],
             description=data.get('description'),
             repo_url=data.get('repo_url'),
@@ -40,12 +51,12 @@ def create_project():
 
         # 3. Add Creator thành Admin (BR1.4)
         admin_member = ProjectMember(
-            project_id=new_project.project_id,
+            project_id=project_id,
             user_id=current_user_id,
             project_role='Project Admin'
         )
+        db.session.add(new_project)
         db.session.add(admin_member)
-        
         db.session.commit()
 
         return jsonify({
@@ -64,20 +75,52 @@ def list_my_projects():
     """
     current_user_id = get_jwt_identity()
     
-    # Query: Join Projects với Members để lọc theo user_id
-    # BR4.1, 4.2
+    # 1. Query DB: Join Projects với Members để lọc
     results = db.session.query(Project, ProjectMember.project_role)\
         .join(ProjectMember, Project.project_id == ProjectMember.project_id)\
         .filter(ProjectMember.user_id == current_user_id)\
         .order_by(Project.created_at.desc())\
         .all()
     
-    # Format lại dữ liệu trả về (kèm theo role của mình trong đó)
+    if not results:
+        return jsonify([]), 200
+
     projects_data = []
+    # Dùng set để lưu danh sách ID người tạo (tránh trùng lặp)
+    creator_ids_set = set()
+
+    # 2. Vòng lặp 1: Format dữ liệu cơ bản & Gom ID người tạo
     for proj, role in results:
         p_dump = ProjectSchema().dump(proj)
-        p_dump['my_role'] = role # BR4.3
+        p_dump['my_role'] = role # Gán role của mình
+        
         projects_data.append(p_dump)
+        
+        # Lưu ID người tạo vào set để tí nữa hỏi User Service
+        if proj.created_by_user_id:
+            creator_ids_set.add(str(proj.created_by_user_id))
+
+    # 3. Gọi User Service (Batch Request - Chỉ gọi 1 lần duy nhất)
+    user_map = {}
+    if creator_ids_set:
+        try:
+            response = requests.post(
+                f"{USER_SERVICE_URL}/api/v1/users/basic-info",
+                json={"user_ids": list(creator_ids_set)} # Convert set -> list
+            )
+            if response.status_code == 200:
+                user_map = response.json()
+        except Exception as e:
+            print(f"Failed to batch fetch users: {e}")
+
+    # 4. Vòng lặp 2: Ghép tên người tạo vào kết quả
+    for p in projects_data:
+        # Lấy ID người tạo từ dữ liệu đã dump (Lưu ý: Schema map created_by -> user_id_create)
+        c_id = p.get('user_id_create') 
+        
+        # Tra cứu trong map
+        info = user_map.get(c_id, {})
+        p['creator_username'] = info.get('username', 'Unknown User')
 
     return jsonify(projects_data), 200
 
@@ -86,12 +129,47 @@ def list_my_projects():
 def get_project_detail(project_id):
     current_user_id = get_jwt_identity()
     
-    # Check quyền xem (phải là member)
+    # 1. Check quyền xem
     member, error, code = check_project_permission(project_id, current_user_id)
     if error: return error, code
 
+    # 2. Lấy thông tin Project từ DB
     project = Project.query.get(project_id)
-    return jsonify(ProjectSchema().dump(project)), 200
+    if not project:
+        return jsonify({"error": "Project not found"}), 404
+
+    # 3. Serialize dữ liệu ra JSON (Dict)
+    # Lúc này project_data đã có trường 'user_id_create' (do bạn config schema bài trước)
+    project_data = ProjectSchema().dump(project)
+
+    # =========================================================
+    # LOGIC MỚI: LẤY THÔNG TIN NGƯỜI TẠO 
+    # =========================================================
+    creator_id = str(project.created_by_user_id) # Lấy ID người tạo từ Model
+
+    try:
+        # Gọi sang User Service
+        response = requests.post(
+            f"{USER_SERVICE_URL}/api/v1/users/basic-info",
+            json={"user_ids": [creator_id]}
+        )
+        
+        if response.status_code == 200:
+            user_map = response.json()
+            # Lấy thông tin user, nếu không có trả về default
+            creator_info = user_map.get(creator_id, {})
+            
+            # Gán thêm vào JSON trả về
+            project_data['creator_username'] = creator_info.get('username', 'Unknown User')
+        else:
+            print(f"User Service Error: {response.status_code}")
+            project_data['creator_username'] = 'Unknown User'
+
+    except Exception as e:
+        print(f"Failed to call User Service: {e}")
+        # Fallback nếu lỗi mạng
+        project_data['creator_Username'] = 'Unknown User'
+    return jsonify(project_data), 200
 
 
 @projects_bp.route('/<project_id>', methods=['PUT'])
@@ -211,8 +289,6 @@ def add_member(project_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
-
-USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://user-service:8000")
 
 @projects_bp.route('/<project_id>/members', methods=['GET'])
 @jwt_required()

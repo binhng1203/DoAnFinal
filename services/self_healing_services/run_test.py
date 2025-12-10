@@ -17,8 +17,8 @@ def build_db_config_from_env(prefix: str):
         "port": int(os.getenv(f"{prefix}PORT", "5432")),
         "dbname": os.getenv(f"{prefix}NAME", "final"),
         # User đọc/ghi knowledge base
-        "user": os.getenv(f"{prefix}USER", "healenium_user"),
-        "password": os.getenv(f"{prefix}PASSWORD", "YDk2nmNs4s9aCP6K"),
+        "user": os.getenv(f"{prefix}USER", "postgres"),
+        "password": os.getenv(f"{prefix}PASSWORD", "postgres"),
     }
 
 def main():

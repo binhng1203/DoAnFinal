@@ -93,7 +93,8 @@ def get_users_basic_info():
     result = {}
     for u in users:
         result[str(u.user_id)] = {
-            "fullname": u.fullname
+            "fullname": u.fullname,
+            "username": u.username
         }
         
     return jsonify(result), 200
