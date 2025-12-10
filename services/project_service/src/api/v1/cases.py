@@ -1,3 +1,5 @@
+import requests
+import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from src.extensions import db
@@ -8,6 +10,8 @@ from src.utils import check_project_permission
 from src.utils import get_next_step_order, shift_steps_for_insert
 
 cases_bp = Blueprint('cases', __name__)
+
+USER_SERVICE_URL = os.environ.get("USER_SERVICE_URL", "http://user-service:8000")
 
 # --- 1. LẤY DANH SÁCH & TẠO TEST CASE (Trong 1 Suite) ---
 # URL: /api/v1/suites/<suite_id>/cases
@@ -27,12 +31,45 @@ def handle_suite_cases(suite_id):
 
     # [GET] Lấy danh sách Test Cases
     if request.method == 'GET':
-        # PS_16: Xem danh sách Test Case (Chỉ lấy active)
+        # 1. Query danh sách từ DB (PS_16)
         cases = TestCase.query.filter_by(suite_id=suite_id, is_active=True)\
             .order_by(TestCase.updated_at.desc()).all()
-        return jsonify(TestCaseSchema(many=True).dump(cases)), 200
+            
+        if not cases:
+            return jsonify([]), 200
 
-    # [POST] Tạo Test Case mới
+        # 2. Convert sang List Dictionary
+        cases_data = TestCaseSchema(many=True).dump(cases)
+        
+        # 3. Gom tất cả ID người tạo vào 1 set (để lọc trùng)
+        creator_ids = set()
+        for c in cases_data:
+            # Lưu ý: check key trong schema, thường là 'created_by'
+            if c.get('created_by'):
+                creator_ids.add(str(c['created_by']))
+        
+        # 4. Gọi User Service (Batch Request - 1 lần duy nhất)
+        user_map = {}
+        if creator_ids:
+            try:
+                response = requests.post(
+                    f"{USER_SERVICE_URL}/api/v1/users/basic-info",
+                    json={"user_ids": list(creator_ids)},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    user_map = response.json()
+            except Exception as e:
+                print(f"Error fetching users: {e}")
+
+        # 5. Ghép tên vào dữ liệu trả về
+        for c in cases_data:
+            creator_id = str(c.get('created_by'))
+            info = user_map.get(creator_id, {})
+            
+            c['creator_username'] = info.get('username', 'Unknown')
+
+        return jsonify(cases_data), 200
     if request.method == 'POST':
         # PS_13: Tạo mới Test Case
         data = request.get_json()
@@ -88,7 +125,41 @@ def handle_case_detail(case_id):
 
     # [GET] Xem chi tiết Test Case (PS_16 - Detail)
     if request.method == 'GET':
-        return jsonify(TestCaseSchema().dump(case)), 200
+        # 1. Dump dữ liệu gốc từ DB
+        case_data = TestCaseSchema().dump(case)
+        
+        # 2. Chuẩn bị danh sách ID cần lấy tên (Creator và Updater)
+        user_ids = []
+        if case.created_by: user_ids.append(str(case.created_by))
+        if case.updated_by: user_ids.append(str(case.updated_by))
+        if case.assignee_id: user_ids.append(str(case.assignee_id))
+        
+        # 3. Gọi User Service (Chỉ gọi nếu có ID)
+        user_map = {}
+        if user_ids:
+            try:
+                response = requests.post(
+                    f"{USER_SERVICE_URL}/api/v1/users/basic-info",
+                    json={"user_ids": user_ids}
+                )
+                if response.status_code == 200:
+                    user_map = response.json()
+            except Exception as e:
+                print(f"Failed to call User Service: {e}")
+
+        # 4. Map thông tin vào kết quả trả về
+        # Xử lý Creator
+        creator_info = user_map.get(str(case.created_by), {})
+        case_data['creator_username'] = creator_info.get('username', 'Unknown')
+
+        # Xử lý Updater
+        updater_info = user_map.get(str(case.updated_by), {})
+        case_data['updater_username'] = updater_info.get('username', 'Unknown')
+
+        assigneer_info = user_map.get(str(case.assignee_id), {})
+        case_data['assigneer_username'] = assigneer_info.get('username', 'Unknown')
+
+        return jsonify(case_data), 200
 
     # [PUT] Cập nhật thông tin chung (PS_14)
     if request.method == 'PUT':

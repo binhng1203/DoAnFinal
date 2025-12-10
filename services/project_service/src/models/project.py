@@ -18,7 +18,7 @@ class Project(db.Model):
     __table_args__ = {'schema': 'management'} # [cite: 23]
 
     # [cite: 24] management.projects
-    project_id = db.Column(db.String(8), primary_key=True, default=generate_project_id)
+    project_id = db.Column(db.String(8), primary_key=True)
     name = db.Column(db.String(255), nullable=False) # BR1.1: Projectname bắt buộc
     description = db.Column(db.Text, nullable=True)
     repo_url = db.Column(db.Text, nullable=True)
@@ -32,6 +32,12 @@ class Project(db.Model):
 
     def __repr__(self):
         return f"<Project {self.name}>"
+    
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Logic này chỉ chạy nếu Frontend KHÔNG gửi project_id (phòng hờ)
+        if not self.project_id:
+            self.project_id = generate_project_id()
 
 class ProjectMember(db.Model):
     __tablename__ = 'project_members'
@@ -69,6 +75,8 @@ class TestSuite(db.Model):
     # 'children' giúp truy xuất các suite con từ suite cha
     children = db.relationship('TestSuite', 
                                backref=db.backref('parent', remote_side=[suite_id]),
+                               cascade="all, delete-orphan",  # <--- BẮT BUỘC PHẢI CÓ
+                               passive_deletes=True,
                                lazy=True)
     
     # Khi xóa Suite, xóa luôn Test Cases bên trong (Cascade)

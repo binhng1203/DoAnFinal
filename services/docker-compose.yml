@@ -98,8 +98,8 @@ services:
       - DB_HOST=system_db
       - DB_USER=app_user
       - DB_PASSWORD=app_password
-      - HEALENIUM_HOST=http://healenium-backend:7878
-      - SELENIUM_HOST=http://selenium-hub:4444/wd/hub
+      - HEALENIUM_HOST=http://healenium:7878
+      - SELENIUM_HOST=http://hlm-proxy:8085/wd/hub
     depends_on:
       system_db:
         condition: service_healthy
@@ -122,7 +122,7 @@ services:
       system_db:
         condition: service_healthy
     ports:
-      - "8004:8000" 
+      - "8004:8000"
     volumes:
       - ./knowledge_base_service:/app
     command: gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload
