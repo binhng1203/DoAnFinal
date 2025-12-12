@@ -5,9 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from self_healing_v1.manager import HealingManager
 from self_healing_v1.wrapper import HealingWrapper
-from test_cases.test_checkout_flow import run_checkout_happy_test
-from test_cases.test_checkout_flow import run_checkout_healenium_native_sim_test
-from test_cases.test_checkout_flow import run_checkout_python_fallback_sim_test
+from test_cases.add_to_card import run_minimal_shop_happy_test
 
 def build_db_config_from_env(prefix: str):
     return {
@@ -71,12 +69,12 @@ def main():
         def test_entrypoint(**kwargs):
             # Không truyền wrapper vào đây nữa,
             # vì run_checkout_happy_test đang nhận driver + healing_find_func
-            return run_checkout_healenium_native_sim_test(**kwargs)
+            return run_minimal_shop_happy_test(**kwargs)
 
         manager.run_test_wrapper(
             test_function=test_entrypoint,
             driver=driver,
-            test_id="run_checkout_healenium_native_sim_test",
+            test_id="run_minimal_shop_happy_test",
             wrapper=None,               # tham số này giờ không dùng nữa, nhưng giữ cho khỏi lỗi
             build_version="build-01",
             git_hash="sim-0001",
@@ -89,6 +87,13 @@ def main():
         driver.quit()
         manager.close()
 
-
+import sys
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # Khi có lỗi (Test Fail), code sẽ nhảy vào đây thay vì in Traceback
+        print(f"\n❌ [EXECUTION FAILED] Test run finished with error: {e}")
+        
+        # Thoát với mã lỗi 1 (để CI/CD hoặc hệ thống khác biết là chạy thất bại)
+        sys.exit(1)

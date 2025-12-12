@@ -10,7 +10,7 @@ import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
 from ..context import HealingContext
-from .storage_service import StorageService  # NEW
+from .storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -20,33 +20,13 @@ KB_TABLE = "public.healing_knowledge"
 HEAL_EVENT_TABLE = f"{SCHEMA}.heal_event"
 TEST_RUN_HISTORY_TABLE = f"{SCHEMA}.test_run_history"
 LOCATOR_INSTABILITY_TABLE = f"{SCHEMA}.locator_instability"
-VISUAL_VALIDATION_TABLE = f"{SCHEMA}.visual_validation_event"  # NEW
+VISUAL_VALIDATION_TABLE = f"{SCHEMA}.visual_validation_event"
 
 
 class PersistenceService:
     """
     PersistenceService (workflow mới hoàn toàn):
-
-    1) test_run_history
-        - load_history_for_test(test_id)         -> DecisionLayer dùng cho fuzzy
-        - save_raw_run_and_get_id(test_id)
-        - update_run_history_final_status(run_id, final_status)
-
-    2) heal_event (report)
-        - log_heal_success(context, engine, basis_json)
-        - log_heal_failure(context, engine, reason, basis_json)
-
-    3) healing_knowledge (KB chính)
-        - upsert khi heal SUCCESS / FAILURE
-
-    4) locator_instability
-        - update tỉ lệ bất ổn theo locator_old
-
-    5) visual_validation_event (MỚI)
-        - log_visual_validation_event: lưu SSIM/metric + URL ảnh (baseline/current/diff)
-
-    NOTE:
-    - Không còn schema legacy knowledge_base / self_heal_history / project / fingerprint
+    ...
     """
 
     def __init__(self, db_config: Dict[str, Any]):
@@ -299,11 +279,6 @@ class PersistenceService:
         project_id: int | None = None,
         source_type: str = "AUTO",
     ):
-        """
-        Upsert KB:
-            - nếu SUCCESS -> tăng success_count + avg_repair_ms
-            - nếu FAILURE -> tăng failure_count
-        """
         if not self.conn:
             return
 
@@ -392,13 +367,10 @@ class PersistenceService:
         success: bool,
         project_id: int | None = None,
     ):
-        """
-        Mỗi lần heal (thành công hay thất bại) update độ bất ổn locator.
-        """
         if not self.conn:
             return
 
-        # ✅ Normalize project_id: nếu None thì dùng 0 để ON CONFLICT hoạt động
+        # Normalize project_id: nếu None thì dùng 0 để ON CONFLICT hoạt động
         project_id_norm = project_id if project_id is not None else 0
 
         succ_inc = 1 if success else 0
@@ -426,14 +398,14 @@ class PersistenceService:
                 instability_rate = ROUND(
                     ({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)::NUMERIC * 100.0
                     / NULLIF(({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)
-                            + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
+                           + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
                     2
                 ),
                 updated_at = NOW();
         """
 
         params = (
-            project_id_norm,          # 👈 dùng project_id_norm thay vì project_id
+            project_id_norm,
             locator_old,
             fail_inc,
             succ_inc,
@@ -458,7 +430,6 @@ class PersistenceService:
             )
             if self.conn:
                 self.conn.rollback()
-
 
     # ----------------------------------------------------------------------
     # 4) heal_event insert
@@ -485,6 +456,8 @@ class PersistenceService:
 
         started_at = getattr(context, "healing_started_at", None) or self._now_utc()
         ended_at = self._now_utc()
+        
+        # duration_ms fix: đảm bảo là số nguyên
         duration_ms = int(getattr(context, "healing_duration_ms", 0) or 0)
 
         confidence = getattr(context, "confidence_of_chosen", None)
@@ -711,7 +684,6 @@ class PersistenceService:
             success=True,
         )
 
-        # 4) run_history đã được update trong _insert_heal_event
         logger.info("[PersistenceService] Đã lưu heal SUCCESS (workflow mới).")
 
     def log_healing_failure(
@@ -750,7 +722,6 @@ class PersistenceService:
         commit_info = test_ctx.get("commit_info", {})
         app_version = test_ctx.get("app_version")
 
-        # khi fail không có new locator -> dùng chính old locator làm new locator placeholder
         self._upsert_kb(
             fingerprint=fingerprint,
             old_locator=broken,
@@ -767,7 +738,6 @@ class PersistenceService:
             success=False,
         )
 
-        # 4) run_history đã được update trong _insert_heal_event
         logger.info(f"[PersistenceService] Đã lưu heal FAILURE (reason={reason}).")
 
     # ----------------------------------------------------------------------
@@ -778,14 +748,25 @@ class PersistenceService:
         Manager v1 gọi trong finally.
         Map sang log_healing_success / log_healing_failure.
         """
+        # [FIX] Lỗi: violates check constraint "chk_engine"
+        # Nếu engine_used là 'RAW' (tìm thấy ngay), nghĩa là không có healing -> Bỏ qua
+        engine = getattr(context, "engine_used", "PYTHON")
+        if engine == "RAW":
+            return
+
+        # [FIX] Mapping engine name để tránh lỗi DB Constraint (nếu DB chưa update enum)
+        # Ví dụ: BACKEND_HISTORY -> NATIVE
+        if engine and engine.startswith("BACKEND"):
+            engine = "NATIVE"
+        
         final_status = getattr(context, "final_status", "FAILURE")
-        engine = getattr(context, "engine_used", "PYTHON")  # default python fallback
 
         if final_status == "SUCCESS":
             broken = getattr(context, "broken_locator", None)
             chosen = getattr(context, "chosen_locator", None)
             best_cand = getattr(context, "best_candidate", None)
 
+            # Trường hợp thiếu data (dù báo success nhưng chưa có locator mới)
             if not broken or not chosen or not best_cand:
                 self.log_healing_failure(
                     context, engine=engine, reason="MISSING_CONTEXT"
@@ -809,6 +790,69 @@ class PersistenceService:
             )
 
     # ----------------------------------------------------------------------
+
+    # [CẬP NHẬT] services/self_healing_services/services/persistence_service.py
+
+    # ... (Giữ nguyên các phần import và init cũ) ...
+
+    # ----------------------------------------------------------------------
+    # 6) [NEW] Query Healenium Database trực tiếp
+    # ----------------------------------------------------------------------
+    def get_selector_from_healenium_db(self, locator_value: str) -> Optional[Dict[str, Any]]:
+        """
+        Truy vấn bảng healenium.selector để lấy node_path dựa trên locator value.
+        """
+        if not self.conn:
+            return None
+
+        # Trong DB, cột locator lưu dạng JSON string: {"type": "By.xpath", "value": "//button..."}
+        # Chúng ta dùng LIKE để tìm chuỗi value bên trong JSON đó.
+        # json.dumps sẽ thêm dấu ngoặc kép và escape ký tự, ta cắt bỏ 2 dấu ngoặc bao quanh
+        try:
+            json_val = json.dumps(locator_value)
+            search_pattern = json_val[1:-1] # Ví dụ: //button[@id=\"btn\"]
+        except:
+            search_pattern = locator_value
+
+        sql = """
+            SELECT locator, node_path
+            FROM healenium.selector
+            WHERE locator LIKE %s
+            ORDER BY create_date DESC -- Lấy cái mới nhất nếu có trùng
+            LIMIT 1;
+        """
+        
+        try:
+            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # Tìm kiếm pattern %"value"% trong cột locator
+                cur.execute(sql, (f'%{search_pattern}%',))
+                row = cur.fetchone()
+                
+                if row:
+                    try:
+                        # Parse JSON từ string trong DB (nếu driver trả về string)
+                        # psycopg2 với RealDictCursor đôi khi tự convert jsonb, nhưng cột này thường là text
+                        raw_locator = row['locator']
+                        raw_node_path = row['node_path']
+
+                        locator_data = json.loads(raw_locator) if isinstance(raw_locator, str) else raw_locator
+                        node_path_data = json.loads(raw_node_path) if isinstance(raw_node_path, str) else raw_node_path
+                        
+                        return {
+                            "locator": locator_data,
+                            "node_path": node_path_data
+                        }
+                    except json.JSONDecodeError:
+                        logger.warning(f"[PersistenceService] Lỗi parse JSON DB: {row}")
+                        return None
+            return None
+        except Exception as e:
+            logger.error(f"[PersistenceService] Lỗi query healenium.selector: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return None
+        
+
     def close(self):
         if self.conn:
             try:
