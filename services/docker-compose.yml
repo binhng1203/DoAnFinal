@@ -128,24 +128,6 @@ services:
     command: gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload
     networks:
       - app-network
-  test-runner-service:
-    build: ./self_healing_services
-    container_name: test_runner_app
-    environment:
-      - DB_HOST=system_db
-      - DB_USER=app_user
-      - DB_PASSWORD=app_password
-      - HEALENIUM_HOST=http://healenium-backend:7878
-      - SELENIUM_HOST=http://selenium-hub:4444/wd/hub
-    depends_on:
-      system_db:
-        condition: service_healthy
-    ports:
-      - "8003:8000"
-    volumes:
-      - ./self_healing_services:/app
-    networks:
-      - app-network
   # ============================================================
   # 3. HEALENIUM CORE GROUP
   # ============================================================
@@ -169,7 +151,7 @@ services:
       - SERVER_PORT=7878
       - KEY_SELECTOR_URL=false
       - COLLECT_METRICS=true
-      - FIND_ELEMENTS_AUTO_HEALING=false
+      - FIND_ELEMENTS_AUTO_HEALING=true
       - HLM_LOG_LEVEL=info
       - TZ=Asia/Bangkok
     volumes:

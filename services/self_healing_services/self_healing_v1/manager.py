@@ -1,13 +1,15 @@
 # self_healing_v1/manager.py
 import logging
 from functools import partial
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple
 import time
+import requests
+from bs4 import BeautifulSoup
 
-from selenium.common.exceptions import (
-    NoSuchElementException,
-    WebDriverException,
-)
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.remote.webdriver import WebDriver as RemoteWebDriver
+from selenium.common.exceptions import NoSuchElementException, WebDriverException
 
 from .context import HealingContext
 from .layers.suggestion_layer import SuggestionLayer
@@ -16,620 +18,296 @@ from .layers.decision_layer import DecisionLayer
 from .layers.validation_layer import ValidationLayer
 from .services.cloud_kb_client import CloudKnowledgeBaseClient
 from .services.persistence_service import PersistenceService
+from .utils.element_fingerprint import ElementFingerprint as FingerprintGenerator
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_HEALENIUM_HOST = "http://localhost:7878"
+HEALENIUM_WEBDRIVER_PATH = "/wd/hub"
 
 class HealingManager:
-    """
-    HealingManager điều phối toàn bộ pipeline self-healing PYTHON (Tầng 2).
-
-    TẦNG 1: Healenium native (qua proxy 8085)
-    TẦNG 2: Python fallback (4-layer) chỉ chạy khi Tầng 1 thất bại thật sự.
-    """
+    driver: Optional[RemoteWebDriver] = None
+    _healenium_base_url: str = DEFAULT_HEALENIUM_HOST
 
     def __init__(
         self,
         db_config_kb: Dict[str, Any],
         db_config_reporting: Dict[str, Any],
-        healenium_host: str = "http://localhost:7878",
         visual_baseline_dir: str = "visual_baseline",
         imitator_url: str = "http://localhost:8000",
-        enable_python_fallback: bool = True,  # cho phép tắt fallback khi cần test native
-        enable_native_element_validation: bool = True,  # validate element cho native/healenium
+        enable_python_fallback: bool = True,
+        enable_native_element_validation: bool = True,
+        healenium_host: Optional[str] = None,
     ):
-        logger.info("Khởi tạo HealingManager (workflow mới)...")
+        logger.info("Khởi tạo HealingManager...")
 
-        self.healenium_host = healenium_host
+        self.healenium_host = healenium_host or DEFAULT_HEALENIUM_HOST
+        HealingManager._healenium_base_url = self.healenium_host
         self.enable_python_fallback = enable_python_fallback
         self.enable_native_element_validation = enable_native_element_validation
 
-        # ---------- SuggestionLayer (Knowledge Base riêng) ----------
-        self.kb_client: Optional[CloudKnowledgeBaseClient] = None
-        self.suggestion_layer: Optional[SuggestionLayer] = None
+        # KB + Suggestion Layer
+        self.kb_client = None
+        self.suggestion_layer = None
         try:
             self.kb_client = CloudKnowledgeBaseClient(db_config_kb)
-            self.suggestion_layer = SuggestionLayer(cloud_kb_client=self.kb_client)
-            logger.info("[HealingManager] SuggestionLayer đã sẵn sàng.")
+            self.suggestion_layer = SuggestionLayer(self.kb_client)
+            logger.info("[HealingManager] SuggestionLayer READY.")
         except Exception as e:
-            logger.error(
-                f"[HealingManager] Không thể khởi tạo CloudKnowledgeBaseClient hoặc SuggestionLayer: {e}",
-                exc_info=True,
-            )
+            logger.error("[HealingManager] ERROR Init SuggestionLayer", exc_info=True)
 
-        # ---------- Persistence (Báo cáo, analytics) ----------
-        self.persistence_service: Optional[PersistenceService] = None
+        # Persistence Service
+        self.persistence_service = None
         try:
             self.persistence_service = PersistenceService(db_config_reporting)
-            logger.info("[HealingManager] PersistenceService đã sẵn sàng.")
-        except Exception as e:
-            logger.error(
-                f"[HealingManager] Không thể khởi tạo PersistenceService: {e}",
-                exc_info=True,
-            )
+            logger.info("[HealingManager] PersistenceService READY.")
+        except Exception:
+            logger.error("[HealingManager] ERROR Init PersistenceService", exc_info=True)
 
-        # ---------- HealingLayer Python (heuristics fallback) ----------
-        self.healing_layer = HealingLayer(
-            driver=None,
-            healenium_host=healenium_host,
-        )
-
-        # ---------- Decision & Validation ----------
-        self.decision_layer = DecisionLayer(
-            persistence_service=self.persistence_service
-        )
+        # HealingLayer, DecisionLayer, ValidationLayer
+        self.healing_layer = HealingLayer(driver=None, healenium_host=self.healenium_host)
+        self.decision_layer = DecisionLayer(self.persistence_service)
         self.validation_layer = ValidationLayer(baseline_dir=visual_baseline_dir)
 
-        logger.info(
-            "HealingManager đã sẵn sàng (Healenium native qua proxy + 4-layer Python fallback)."
-        )
+        logger.info("HealingManager READY (native + fallback)")
 
-    # ==================================================================
-    # Core self-healing pipeline (TẦNG 2)
-    # ==================================================================
-    def heal(self, context: HealingContext) -> object:
+    # ==========================
+    # Driver management
+    # ==========================
+    @classmethod
+    def create_driver(cls, browser: str = "chrome") -> RemoteWebDriver:
         """
-        Thực thi pipeline self-healing (Tầng 2).
-        CHỈ chạy khi TẦNG 1 thất bại và fallback được bật.
+        Tạo WebDriver kết nối qua Healenium Proxy (hlm-proxy) để self-healing hoạt động.
+        Nếu không kết nối được, sẽ fallback sang localhost.
         """
-        context.engine_used = "PYTHON"  # cho PersistenceService biết engine
-        context.kb_candidates = getattr(context, "kb_candidates", []) or []
-        context.hl_candidates = getattr(context, "hl_candidates", []) or []
-        context.all_candidates = getattr(context, "all_candidates", []) or []
+        options = Options()
+        if browser.lower() != "chrome":
+            raise ValueError("Only Chrome supported.")
 
-        healed_element = None
+        # Danh sách URL thử
+        urls_to_try = [
+            "http://hlm-proxy:8085/wd/hub",  # Docker network
+            "http://localhost:7878/wd/hub"   # fallback host
+        ]
 
-        try:
-            broken_by, broken_value = context.broken_locator
-
-            # đảm bảo có page_url nếu có thể
+        last_exception = None
+        for url in urls_to_try:
             try:
-                if not getattr(context, "page_url", None) and context.driver:
-                    context.page_url = context.driver.current_url
+                print(f"🔄 Connecting WebDriver → Healenium Proxy: {url}")
+                cls.driver = webdriver.Remote(command_executor=url, options=options)
+                # Kiểm tra kết nối
+                cls.driver.execute_script("return navigator.userAgent;")
+                print(f"✅ DRIVER READY via {url}")
+                return cls.driver
+            except WebDriverException as e:
+                print(f"⚠ Cannot connect to {url}: {e}")
+                last_exception = e
+                time.sleep(1)  # delay nhỏ trước thử URL tiếp theo
+
+        raise RuntimeError(f"❌ Cannot connect to any Healenium Proxy. Last error: {last_exception}")
+
+    @classmethod
+    def destroy_driver(cls):
+        if cls.driver:
+            cls.driver.quit()
+            print("🔻 WebDriver closed.")
+        cls.driver = None
+
+    # ==========================
+    # Fetch Healenium candidates
+    # ==========================
+    def fetch_healenium_candidates(self, broken_by: str, broken_value: str) -> list:
+        try:
+            url = f"{self.healenium_host}/healenium/selectors"
+            r = requests.get(url, timeout=5)
+            r.raise_for_status()
+            soup = BeautifulSoup(r.text, 'html.parser')
+
+            candidates = []
+            for row in soup.select('table tbody tr'):
+                cols = row.find_all('td')
+                if len(cols) >= 5:
+                    candidate_by = cols[0].text.strip()
+                    candidate_value = cols[1].text.strip()
+                    candidates.append({"by": candidate_by, "value": candidate_value, "source": "healenium"})
+            return candidates
+        except Exception as e:
+            logger.warning(f"[HealingManager] Lỗi khi fetch Healenium selectors: {e}")
+            return []
+
+    # ==========================
+    # Core self-healing pipeline
+    # ==========================
+    def heal(self, context: HealingContext) -> object:
+        context.engine_used = "PYTHON"
+        healed_element = None
+        broken_by, broken_value = context.broken_locator
+
+        # =================
+        # 1) Healenium first
+        # =================
+        candidates = self.fetch_healenium_candidates(broken_by, broken_value)
+        context.all_candidates = candidates
+
+        for cand in candidates:
+            try:
+                el = context.driver.find_element(cand["by"], cand["value"])
+                context.chosen_locator = (cand["by"], cand["value"])
+                healed_element = el
+                context.final_status = "SUCCESS"
+                logger.info(f"[HealingManager] ✅ Healed via Healenium: {context.chosen_locator}")
+                break
             except Exception:
-                pass
+                continue
 
-            # 1) SuggestionLayer (từ KB)
+        # =================
+        # 2) Python fallback
+        # =================
+        if not healed_element:
+            if not self.enable_python_fallback:
+                raise NoSuchElementException(f"Element {broken_value} not found, fallback disabled")
+
+            if context.driver is None:
+                raise RuntimeError("Driver is None, cannot perform healing.")
+
+            # Fingerprint for SuggestionLayer
+            fingerprint_generator = FingerprintGenerator(context.broken_locator, context.driver)
+            kb_candidates = []
             if self.suggestion_layer:
-                kb_candidates = (
-                    self.suggestion_layer.get_suggestions(
-                        context.broken_locator, context.driver
-                    )
-                    or []
-                )
-                context.fingerprint = self.suggestion_layer.last_fingerprint
-
-                if isinstance(kb_candidates, dict):
-                    kb_candidates = [kb_candidates]
-
+                kb_candidates = self.suggestion_layer.get_suggestions(context.broken_locator, context.driver) or []
                 for cand in kb_candidates:
                     cand["source"] = "suggestion_kb"
+                context.all_candidates.extend(kb_candidates)
 
-                context.kb_candidates = kb_candidates
-            else:
-                logger.warning("[HealingManager] SuggestionLayer không khả dụng.")
-
-            # 2) HealingLayer heuristics
+            # HealingLayer
             if self.healing_layer:
-                context.hl_candidates = (
-                    self.healing_layer.get_candidates(
-                        context.driver, broken_by, broken_value
-                    )
-                    or []
-                )
-            else:
-                logger.warning("[HealingManager] HealingLayer không khả dụng.")
-
-            # 3) Merge candidates
-            context.all_candidates = (context.kb_candidates or []) + (
-                context.hl_candidates or []
-            )
+                hl_candidates = self.healing_layer.get_candidates(context.driver, broken_by, broken_value) or []
+                context.all_candidates.extend(hl_candidates)
 
             if not context.all_candidates:
+                context.final_status = "FAILURE"
                 raise NoSuchElementException("Self-Healing: Không tìm thấy ứng viên.")
 
-            # 4) DecisionLayer
-            decision = self.decision_layer.make_decision(
-                context.all_candidates, context.test_context
-            )
-
-            context.risk_score = decision.get("risk_score")
-            context.adaptive_threshold = decision.get("adaptive_threshold")
-            context.decision_status = decision.get("status")
-
+            # DecisionLayer
+            decision = self.decision_layer.make_decision(context.all_candidates, context.test_context)
             if decision.get("status") == "REJECTED":
-                raise NoSuchElementException(
-                    "Self-Healing: DecisionLayer từ chối phục hồi."
-                )
+                context.final_status = "FAILURE"
+                raise NoSuchElementException("Self-Healing: DecisionLayer từ chối phục hồi.")
 
             by_final, val_final = decision["chosen_locator"]
             context.chosen_locator = (by_final, val_final)
-            context.source_of_chosen = decision.get("source")
-
-            raw_score = decision.get("confidence")
-            context.confidence_of_chosen = raw_score
-            context.raw_score = raw_score
-
-            context.best_candidate = {
-                "by": by_final,
-                "value": val_final,
-                "score": raw_score,
-                "source": decision.get("source"),
-                "status": decision.get("status"),
-            }
-
-            logger.info(
-                f"[HealingManager] (H08) ACCEPTED: {context.chosen_locator} (Score: {raw_score})"
-            )
-
-            # 5) find healed element
             healed_element = context.driver.find_element(by_final, val_final)
-            context.healed_element = healed_element
 
-            # 6) ValidationLayer (element-level cho fallback)
-            if self.validation_layer:
-                try:
-                    visual_status = self.validation_layer.validate_element(
-                        context.healed_element, context.element_name
-                    )
-                    context.visual_validation_status = visual_status
-                    context.validation_scope = "ELEMENT"
+        # =================
+        # Validation Layer
+        # =================
+        if healed_element and self.validation_layer:
+            try:
+                visual_status = self.validation_layer.validate_element(healed_element, context.element_name)
+                context.visual_validation_status = visual_status
+            except Exception as ve:
+                logger.error(f"[HealingManager] Lỗi validate element: {ve}", exc_info=True)
 
-                    # lấy SSIM score từ ValidationLayer lưu vào context -> heal_event
-                    last_ele = self.validation_layer.get_last_element_result() or {}
-                    context.last_ssim_score = last_ele.get("ssim_score")
-
-                    if visual_status == "FAILED":
-                        logger.warning(
-                            f"[HealingManager] (H11) FAILED: '{context.element_name}' không khớp baseline."
-                        )
-                    elif visual_status == "SOFT_ACCEPT":
-                        logger.warning(
-                            f"[HealingManager] (H11) SOFT_ACCEPT: '{context.element_name}' hơi lệch baseline nhưng vẫn chấp nhận."
-                        )
-
-                    # log visual_validation_event vào DB (fallback)
-                    if self.persistence_service:
-                        tc = context.test_context or {}
-                        test_id = tc.get("test_id")
-                        run_id = tc.get("run_id")
-                        page_url = getattr(context, "page_url", tc.get("page_url"))
-
-                        self.persistence_service.log_visual_validation_event(
-                            test_id=test_id,
-                            run_id=run_id,
-                            scope="ELEMENT",
-                            target_name=context.element_name,
-                            page_url=page_url,
-                            status=visual_status,
-                            ssim_score=last_ele.get("ssim_score"),
-                            extra_metrics=None,
-                            baseline_path=last_ele.get("baseline_path"),
-                            current_path=last_ele.get("current_path"),
-                            diff_path=last_ele.get("diff_path"),
-                        )
-
-                except Exception as ve:
-                    logger.error(
-                        f"[HealingManager] Lỗi validate element (fallback): {ve}",
-                        exc_info=True,
-                    )
-
-            # 7) report to KB (Python fallback học vào KB)
-            commit_info = (context.test_context or {}).get("commit_info", {}) or {}
-
-            if self.suggestion_layer:
-                try:
-                    self.suggestion_layer.report_successful_heal(
-                        old_locator=context.broken_locator,
-                        new_locator=context.chosen_locator,
-                        commit_info=commit_info,
-                        source="python_fallback",
-                        score=float(raw_score or 1.0),
-                        duration_ms=context.healing_duration_ms or None,
-                        page_url=getattr(context, "page_url", None),
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[HealingManager] Lỗi khi report_successful_heal lên SuggestionLayer: {e}",
-                        exc_info=True,
-                    )
-
-            elif self.kb_client:
-                # fallback: lưu trực tiếp nếu không có SuggestionLayer
-                try:
-                    self.kb_client.save_mapping(
-                        page_url=getattr(context, "page_url", None),
-                        broken_by=broken_by,
-                        broken_value=broken_value,
-                        healed_by=str(by_final),
-                        healed_value=val_final,
-                        source=context.source_of_chosen or "python_fallback",
-                        score=float(raw_score or 0.0),
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"[HealingManager] Lỗi khi lưu mapping trực tiếp vào KB: {e}",
-                        exc_info=True,
-                    )
-
-            context.final_status = "SUCCESS"
-            logger.info(
-                f"[HealingManager] PHỤC HỒI THÀNH CÔNG (fallback Python): {broken_value} -> {val_final}"
-            )
-
-        except Exception as e:
-            context.final_status = "FAILURE"
-            logger.error(
-                f"[HealingManager] Pipeline TỰ PHỤC HỒI THẤT BẠI: {e}", exc_info=True
-            )
-            raise NoSuchElementException(f"Self-Healing Pipeline Failed: {e}")
-
-        finally:
-            # Kết thúc timer của HealingContext (healing_duration_ms)
-            context.end_timer()
-
-            # Map healing_duration_ms -> python_overhead_ms để ghi vào heal_event
-            if getattr(context, "healing_duration_ms", None) is not None:
-                context.python_overhead_ms = context.healing_duration_ms
-
-            if self.persistence_service:
-                try:
-                    self.persistence_service.save_healing_event(context)
-                except Exception as _e:
-                    logger.error(
-                        f"[HealingManager] Lỗi khi ghi PersistenceService: {_e}",
-                        exc_info=True,
-                    )
-            else:
-                logger.warning(
-                    "[HealingManager] PersistenceService không khả dụng, bỏ qua ghi sự kiện heal."
-                )
-
-            logger.info(
-                f"[HealingManager] Thời gian phục hồi fallback: {context.healing_duration_ms} ms"
-            )
+        # =================
+        # Persistence
+        # =================
+        if self.persistence_service:
+            try:
+                self.persistence_service.save_healing_event(context)
+            except Exception as e:
+                logger.error(f"[HealingManager] Lỗi ghi heal event: {e}", exc_info=True)
 
         return healed_element
 
-    # ==================================================================
-    # Helper: tạo hàm find_element có self-healing
-    # ==================================================================
+    # ==========================
+    # Wrapper find_element thông minh
+    # ==========================
     def get_healing_find_function(self, driver) -> Callable:
-        """
-        find_element thông minh:
-
-        TẦNG 1 (Native):
-            - luôn thử driver.find_element() qua proxy trước
-            - log rõ native success / native fail
-            - có thể kèm element-level validation cho native
-
-        TẦNG 2 (Fallback Python):
-            - chỉ chạy nếu native fail thật sự
-            - có thể tắt bằng enable_python_fallback=False
-            - hoặc ép native-only trong test_context
-        """
-
-        def _find_element_with_healing(
-            driver,
-            by: str,
-            value: str,
-            element_name: str,
-            test_context: Optional[Dict[str, Any]] = None,
-        ):
+        def _find_element_with_healing(driver, by, value, element_name, test_context=None):
             if test_context is None:
                 test_context = {}
 
-            native_only = bool(test_context.get("native_only", False))
-            # cho phép bật/tắt visual check cho element native qua test_context
-            visual_check_element = bool(test_context.get("visual_check_element", True))
-            # cho phép test mô phỏng native-heal và log vào DB
-            native_heal_sim = bool(test_context.get("native_heal_sim", False))
-
-            # ==========================
-            # TẦNG 1 — Native / Healenium
-            # ==========================
-            native_start = time.perf_counter()
             try:
+                # Native find
                 el = driver.find_element(by, value)
-                native_end = time.perf_counter()
-                native_overhead_ms = int((native_end - native_start) * 1000)
-
-                logger.info(
-                    f"[HealingManager] (T1-native) FOUND: {element_name} "
-                    f"(native_overhead_ms={native_overhead_ms}, by={by}, value={value})"
-                )
-
-                # Element-level validation cho native / Healenium
-                if (
-                    self.validation_layer
-                    and self.enable_native_element_validation
-                    and visual_check_element
-                ):
-                    try:
-                        visual_status = self.validation_layer.validate_element(
-                            el, element_name
-                        )
-                        logger.info(
-                            f"[HealingManager] (V-native) Visual status '{element_name}': {visual_status}"
-                        )
-
-                        # log visual event vào DB (native)
-                        if self.persistence_service:
-                            last_ele = (
-                                self.validation_layer.get_last_element_result() or {}
-                            )
-                            test_id = test_context.get("test_id")
-                            run_id = test_context.get("run_id")
-                            page_url = test_context.get("page_url")
-
-                            self.persistence_service.log_visual_validation_event(
-                                test_id=test_id,
-                                run_id=run_id,
-                                scope="ELEMENT",
-                                target_name=element_name,
-                                page_url=page_url,
-                                status=visual_status,
-                                ssim_score=last_ele.get("ssim_score"),
-                                extra_metrics=None,
-                                baseline_path=last_ele.get("baseline_path"),
-                                current_path=last_ele.get("current_path"),
-                                diff_path=last_ele.get("diff_path"),
-                            )
-
-                    except Exception as ve:
-                        logger.error(
-                            f"[HealingManager] Lỗi validate element (native): {ve}",
-                            exc_info=True,
-                        )
-
-                # 🔥 Nếu là test mô phỏng native-heal -> log heal_event engine='NATIVE'
-                if native_heal_sim and self.persistence_service:
-                    try:
-                        ctx = HealingContext(
-                            driver=driver,
-                            broken_locator=(by, value),
-                            element_name=element_name,
-                            test_context=test_context,
-                        )
-                        ctx.engine_used = "NATIVE"
-                        ctx.final_status = "SUCCESS"
-                        ctx.broken_locator = (by, value)
-                        ctx.chosen_locator = (by, value)
-
-                        # page_url nếu có
-                        try:
-                            if not getattr(ctx, "page_url", None) and driver:
-                                ctx.page_url = driver.current_url
-                        except Exception:
-                            pass
-
-                        # gắn native_overhead_ms vào context để ghi DB
-                        ctx.native_overhead_ms = native_overhead_ms
-
-                        self.persistence_service.log_healing_success(
-                            context=ctx,
-                            engine="NATIVE",
-                            original_locator=ctx.broken_locator,
-                            healed_locator=ctx.chosen_locator,
-                            best_candidate={"source": "healenium_native"},
-                            basis_json={
-                                "note": "Simulated native heal (native_heal_sim=True)"
-                            },
-                        )
-                        logger.info(
-                            "[HealingManager] (T1-native) ĐÃ LOG native heal vào DB (engine=NATIVE)."
-                        )
-                    except Exception as log_e:
-                        logger.error(
-                            f"[HealingManager] Lỗi khi log native heal (engine=NATIVE): {log_e}",
-                            exc_info=True,
-                        )
-
+                logger.info(f"[HealingManager] (T1-native) FOUND: {element_name}")
                 return el
-
-            except (NoSuchElementException, WebDriverException) as e:
-                native_end = time.perf_counter()
-                native_overhead_ms = int((native_end - native_start) * 1000)
-
-                # Bắt cả WebDriverException vì Healenium proxy đôi khi wrap lỗi
-                logger.warning(
-                    f"[HealingManager] (T1-native) NOT FOUND/NOT HEALED: {element_name} "
-                    f"(native_overhead_ms={native_overhead_ms}, by={by}, value={value}). "
-                    f"Exception={type(e).__name__}"
-                )
-
-                if native_only or not self.enable_python_fallback:
-                    # Test native-only: không bật fallback thì fail thẳng
-                    logger.error(
-                        f"[HealingManager] Native-only mode: KHÔNG chạy fallback cho {element_name}."
-                    )
-                    raise NoSuchElementException(
-                        f"Native Healenium failed for {element_name} (by={by}, value={value})"
-                    )
-
-                # ==========================
-                # TẦNG 2 — Pipeline Python
-                # ==========================
-                logger.warning(
-                    f"[HealingManager] Kích hoạt pipeline fallback Python cho {element_name}..."
-                )
-                context = HealingContext(
-                    driver=driver,
-                    broken_locator=(by, value),
-                    element_name=element_name,
-                    test_context=test_context,
-                )
-                # gắn native_overhead_ms để ghi vào heal_event
-                context.native_overhead_ms = native_overhead_ms
-
+            except Exception:
+                # Healenium / fallback
+                context = HealingContext(driver=driver, broken_locator=(by, value), element_name=element_name, test_context=test_context)
                 return self.heal(context)
 
         return partial(_find_element_with_healing, driver)
 
-    # ==================================================================
-    # Helper: fullscreen validation (toàn trang)
-    # ==================================================================
-    def validate_fullscreen(
-        self,
-        driver,
-        page_name: str,
-        test_context: Optional[Dict[str, Any]] = None,
-    ) -> Optional[str]:
-        """
-        Validate fullscreen (toàn trang) sử dụng OpenCV trong ValidationLayer.
-
-        - driver: WebDriver hiện tại
-        - page_name: tên logic của trang (dùng để map tới baseline image)
-        - test_context: context thêm nếu cần log
-        """
+    # ==========================
+    # Fullscreen validation
+    # ==========================
+    def validate_fullscreen(self, driver, page_name: str, test_context: Optional[Dict[str, Any]] = None) -> Optional[str]:
         if not self.validation_layer:
-            logger.warning(
-                "[HealingManager] ValidationLayer không khả dụng, bỏ qua fullscreen validation."
-            )
             return None
-
         try:
             status = self.validation_layer.validate_fullscreen(driver, page_name)
         except Exception as e:
-            logger.error(
-                f"[HealingManager] Lỗi trong ValidationLayer.validate_fullscreen('{page_name}'): {e}",
-                exc_info=True,
-            )
+            logger.error(f"Lỗi validate fullscreen: {e}")
             return None
 
-        # log fullscreen visual vào DB
-        if self.persistence_service and self.validation_layer:
-            try:
-                detail = self.validation_layer.get_last_fullscreen_result() or {}
-                metrics = detail.get("metrics") or {}
-                baseline_path = detail.get("baseline_path")
-                current_path = detail.get("current_path")
-                diff_path = detail.get("diff_path")
-
-                tc = test_context or {}
-                test_id = tc.get("test_id")
-                run_id = tc.get("run_id")
-                page_url = tc.get("page_url")
-
-                self.persistence_service.log_visual_validation_event(
-                    test_id=test_id,
-                    run_id=run_id,
-                    scope="FULLSCREEN",
-                    target_name=page_name,
-                    page_url=page_url,
-                    status=status,
-                    ssim_score=None,  # fullscreen không dùng SSIM, dùng metrics riêng
-                    extra_metrics=metrics,
-                    baseline_path=baseline_path,
-                    current_path=current_path,
-                    diff_path=diff_path,
-                )
-            except Exception as e:
-                logger.error(
-                    f"[HealingManager] Lỗi khi ghi fullscreen event vào PersistenceService: {e}",
-                    exc_info=True,
-                )
-
+        if self.persistence_service:
+            detail = self.validation_layer.get_last_fullscreen_result() or {}
+            metrics = detail.get("metrics") or {}
+            self.persistence_service.log_visual_validation_event(
+                test_id=(test_context or {}).get("test_id"),
+                run_id=(test_context or {}).get("run_id"),
+                scope="FULLSCREEN",
+                target_name=page_name,
+                page_url=(test_context or {}).get("page_url"),
+                status=status,
+                ssim_score=None,
+                extra_metrics=metrics,
+                baseline_path=detail.get("baseline_path"),
+                current_path=detail.get("current_path"),
+                diff_path=detail.get("diff_path"),
+            )
         return status
 
-    # ==================================================================
-    # Helper: wrapper chạy test có ghi log run_history
-    # ==================================================================
-    def run_test_wrapper(
-        self,
-        test_function: Callable,
-        driver,
-        test_id: str,
-        wrapper=None,
-        fullscreen_page_name: Optional[str] = None,  # cho phép truyền tên trang fullscreen
-        **kwargs,
-    ):
-        final_status = "Fail"
-        run_id = None
+    # ==========================
+    # Test wrapper
+    # ==========================
+    def run_test_wrapper(self, test_function: Callable, *args, **kwargs):
+        """Wrapper chạy test với healing + logging + persistence"""
+        if not self.driver:
+            self.create_driver()
 
-        # Đo thời gian bắt đầu test
-        start_ts = time.perf_counter()
+        healing_find_func = self.get_healing_find_function(self.driver)
+        kwargs.update({"healing_find_func": healing_find_func})
 
+        run_context = {}
         if self.persistence_service:
-            app_version = kwargs.get("app_version")
-            run_id = self.persistence_service.save_raw_run_and_get_id(
-                test_id, app_version=app_version
-            )
-
-        healing_find_func = self.get_healing_find_function(driver)
+            try:
+                run_id = self.persistence_service.save_raw_run_and_get_id(test_function.__name__)
+                run_context["run_id"] = run_id
+                kwargs["run_id"] = run_id
+            except Exception as e:
+                logger.warning(f"PersistenceService chưa có method update_run_status, hãy dùng save_healing_event thay thế")
+                kwargs["run_id"] = None
 
         try:
-            test_function(
-                driver=driver,
-                healing_find_func=healing_find_func,
-                test_id=test_id,
-                run_id=run_id,
-                **kwargs,
-            )
-            final_status = "Pass"
-
-            # Sau khi test pass, có thể chạy fullscreen validation nếu được cấu hình
-            if fullscreen_page_name:
-                try:
-                    status = self.validate_fullscreen(
-                        driver=driver,
-                        page_name=fullscreen_page_name,
-                        test_context={"test_id": test_id, "run_id": run_id},
-                    )
-                    logger.info(
-                        f"[HealingManager] Fullscreen validation '{fullscreen_page_name}' => {status}"
-                    )
-                except Exception as ve:
-                    logger.error(
-                        f"[HealingManager] Lỗi khi validate fullscreen trong run_test_wrapper: {ve}",
-                        exc_info=True,
-                    )
-
+            result = test_function(*args, **kwargs)
+            if self.persistence_service and run_context.get("run_id"):
+                self.persistence_service.mark_run_success(run_context.get("run_id"))
+            return result
         except Exception as e:
-            final_status = "Fail"
-            logger.error(f"[HealingManager] Test case '{test_id}' thất bại: {e}")
-            # giữ hành vi cũ: vẫn throw ra cho caller
+            logger.error(f"Test run FAILED: {e}", exc_info=True)
+            if self.persistence_service and run_context.get("run_id"):
+                self.persistence_service.mark_run_failed(run_context.get("run_id"))
             raise e
 
-        finally:
-            # Đo thời gian kết thúc và tính duration
-            end_ts = time.perf_counter()
-            duration_ms = int((end_ts - start_ts) * 1000)
-
-            if run_id is not None and self.persistence_service:
-                self.persistence_service.update_run_history_final_status(
-                    run_id=run_id,
-                    final_status=final_status,
-                    total_duration_ms=duration_ms,
-                )
-            elif run_id is None:
-                logger.warning(
-                    "[HealingManager] Không có 'run_id', không thể ghi lịch sử chạy cuối cùng."
-                )
-
+    # ==========================
+    # Close resources
+    # ==========================
     def close(self):
         if self.persistence_service:
             self.persistence_service.close()
-        if self.kb_client:
-            pass
+        if self.kb_client and hasattr(self.kb_client, "close"):
+            self.kb_client.close()
+        if self.driver:
+            self.destroy_driver()
