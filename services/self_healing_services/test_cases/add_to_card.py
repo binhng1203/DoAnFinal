@@ -56,7 +56,7 @@ def run_minimal_shop_happy_test(
         # ---------------- Step 3: Click Add to Cart ----------------
         add_to_cart_btn = healing_find_func(
             by=By.XPATH,
-            value='//button[normalize-space()="Add to Cart"]',
+            value='//button[normalize-space()="Add to Bag"]',
             element_name="MODAL_BUTTON_ADD_TO_CART",
             test_context=test_context,
         )

@@ -7,291 +7,228 @@ from typing import List, Dict, Any, Tuple, Optional, Union
 
 from selenium.webdriver.common.by import By
 
+# Giả định mô hình fuzzy đã được định nghĩa đúng
 from ..models.fuzzy_risk_model import risk_simulator
 from ..services.persistence_service import PersistenceService
 
 logger = logging.getLogger(__name__)
 
-_BY_MAP = {
-    "id": By.ID,
-    "xpath": By.XPATH,
-    "name": By.NAME,
-    "classname": By.CLASS_NAME,
-    "class": By.CLASS_NAME,
-    "css": By.CSS_SELECTOR,
-    "cssselector": By.CSS_SELECTOR,
-    "linktext": By.LINK_TEXT,
-    "partiallinktext": By.PARTIAL_LINK_TEXT,
-    "tagname": By.TAG_NAME,
-    "tag": By.TAG_NAME,
-}
-
-
-def _clamp01(x: float) -> float:
-    """Kẹp một giá trị trong khoảng [0.0, 1.0]."""
-    try:
-        x = float(x)
-    except Exception:
-        x = 0.0
-    return 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
-
-
 class DecisionLayer:
     """
-    DecisionLayer – tầng “đánh giá rủi ro & ra quyết định”.
-
-    Input:
-      - candidates: list các locator candidate (by, value, score, source)
-      - context: test_context (chứa test_id, priority, run_id, ...)
-
-    Output:
-      - dict:
-        {
-          chosen_locator: (By.<X>, value),
-          source,
-          confidence,        # score đã normalize [0,1]
-          risk_score,
-          adaptive_threshold,
-          status: ACCEPTED | SOFT_ACCEPT | REJECTED
-        }
+    DecisionLayer (Layer 3)
+    Nhiệm vụ: Đánh giá rủi ro và ra quyết định chọn/bỏ locator.
+    
+    Logic chính:
+    1. Tính Risk Score (Dựa trên lịch sử test & priority).
+    2. Tính Adaptive Threshold (Ngưỡng thích ứng).
+    3. So sánh điểm của Candidate với Threshold để ra quyết định.
     """
 
     def __init__(self, persistence_service: Optional[PersistenceService]):
+        # Load Config
         CONFIG_PATH = Path(__file__).resolve().parent.parent.parent / "risk_model_config.json"
         self.config = self._load_config(CONFIG_PATH)
 
         self.threshold_settings = self.config.get("threshold_settings", {})
-        self.source_priority = self.config.get("source_priority", {})
+        
+        # Priority: Số càng nhỏ càng ưu tiên (VD: 1 > 2)
+        # Suggestion (KB) thường ưu tiên hơn Heuristic
+        self.source_priority = self.config.get("source_priority", {
+            "healing_knowledge": 1, 
+            "healing_layer_db": 2, 
+            "healing_layer_heuristic": 3,
+            "healing_layer_fallback": 4
+        })
+        
         self.history_config = {
             "N": self.config.get("history_length_n", 100),
             "M": self.config.get("history_length_m", 5),
         }
 
-        self.priority_mapping = self.config.get("priority_mapping", {}) or {}
-        if "default" not in self.priority_mapping:
-            self.priority_mapping["default"] = 0.5
-
-        try:
-            self.soft_margin = float(self.threshold_settings.get("soft_margin", 0.03))
-        except Exception:
-            self.soft_margin = 0.03
+        self.priority_mapping = self.config.get("priority_mapping", {"default": 0.5})
+        self.soft_margin = float(self.threshold_settings.get("soft_margin", 0.05))
 
         self.persistence_service = persistence_service
-        logger.info(f"[DecisionLayer] Đã khởi tạo và tải cấu hình từ: {CONFIG_PATH}")
+        logger.info(f"[DecisionLayer] Ready. Config loaded from {CONFIG_PATH}")
 
     # =========================================================
-    # CONFIG & HELPERS
+    # 1. HELPERS
     # =========================================================
 
     def _load_config(self, config_path: Path) -> Dict[str, Any]:
-        logger.info(f"[DecisionLayer] Đang tải cấu hình từ: {config_path}")
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            logger.error(f"[Lỗi DecisionLayer] Không thể tải file config: {e}")
+        except Exception as e:
+            logger.warning(f"[DecisionLayer] Không tải được config ({e}). Dùng default.")
             return {}
 
-    def _num(self, v: Any) -> float:
-        try:
-            return float(v)
-        except Exception:
-            return 0.0
+    def _clamp01(self, x: float) -> float:
+        return max(0.0, min(1.0, float(x)))
+
+    # =========================================================
+    # 2. RISK CALCULATION (FUZZY LOGIC)
+    # =========================================================
 
     def _calculate_metrics(self, test_history: List[Dict]) -> Tuple[float, float]:
-        """
-        Tính:
-          - instability: tỉ lệ raw_result='Fail' trong N lần chạy gần nhất.
-          - failure_frequency: tỉ lệ raw_result='Fail' trong M lần gần nhất.
-        """
+        """Tính độ mất ổn định (Instability) và tần suất lỗi (Freq)"""
         if not test_history:
             return 0.0, 0.0
 
-        N = max(int(self.history_config.get("N", 100)), 1)
-        M = max(int(self.history_config.get("M", 5)), 1)
+        N = int(self.history_config.get("N", 100))
+        M = int(self.history_config.get("M", 5))
 
-        recent_n_runs = test_history[-N:]
-        raw_failures_n = sum(1 for run in recent_n_runs if run.get("raw_result") == "Fail")
-        instability = raw_failures_n / len(recent_n_runs) if recent_n_runs else 0.0
+        recent_n = test_history[-N:]
+        recent_m = test_history[-M:]
 
-        recent_m_runs = test_history[-M:]
-        raw_failures_m = sum(1 for run in recent_m_runs if run.get("raw_result") == "Fail")
-        failure_frequency = raw_failures_m / len(recent_m_runs) if recent_m_runs else 0.0
+        # Giả sử format history lưu: {'result': 'Pass'/'Fail', ...}
+        fails_n = sum(1 for r in recent_n if r.get("result") == "Fail" or r.get("status") == "Fail")
+        fails_m = sum(1 for r in recent_m if r.get("result") == "Fail" or r.get("status") == "Fail")
 
-        return _clamp01(instability), _clamp01(failure_frequency)
+        instability = fails_n / len(recent_n) if recent_n else 0.0
+        freq = fails_m / len(recent_m) if recent_m else 0.0
 
-    def _map_priority_to_value(self, priority_tag: str) -> float:
-        key = str(priority_tag).strip().lower()
-        val = self.priority_mapping.get(key, self.priority_mapping["default"])
-        return _clamp01(val)
-
-    def _normalize_scores(self, candidates: List[Dict[str, Any]]) -> List[float]:
-        """
-        Chuẩn hóa score:
-        - Nếu max_score <= 1: clamp 0..1
-        - Nếu max_score > 1 (KB trả count): normalize theo max_score
-        """
-        raw_scores = [self._num(c.get("score", 0.0)) for c in candidates]
-        max_raw = max(raw_scores) if raw_scores else 1.0
-
-        if max_raw <= 1.0:
-            return [_clamp01(s) for s in raw_scores]
-
-        # normalize theo max_raw để giữ tương quan
-        return [_clamp01(s / max_raw) for s in raw_scores]
-
-    def _resolve_by(self, by_val: Union[str, By, Any]) -> Optional[By]:
-        """
-        Candidate by có thể là:
-          - string: "xpath", "id", ...
-          - enum By.XPATH, By.ID, ...
-        """
-        if isinstance(by_val, By):
-            return by_val
-
-        by_str = str(by_val or "").strip().lower()
-        by_str = by_str.replace("_", "").replace(" ", "")
-        return _BY_MAP.get(by_str)
-
-    # =========================================================
-    # (H06) Fuzzy Risk Score
-    # =========================================================
+        return self._clamp01(instability), self._clamp01(freq)
 
     def _calculate_risk_score(self, context: Dict[str, Any]) -> float:
-        logger.info("[H06] Đang tính toán Điểm Rủi ro bằng Fuzzy Logic (3-input)...")
+        """Sử dụng Fuzzy Logic để tính Risk Score"""
+        
+        # 1. Lấy Priority
+        prio_str = str(context.get("test_case_priority", "default")).lower()
+        priority_val = self.priority_mapping.get(prio_str, 0.5)
 
-        context = context or {}
-        priority_string = context.get("test_case_priority", "default")
-        priority_val = self._map_priority_to_value(priority_string)
-
+        # 2. Lấy History Metrics
         test_id = context.get("test_id")
-        instability_val, failure_freq_val = 0.0, 0.0
-
-        if not test_id:
-            logger.warning("[H06] Không tìm thấy 'test_id'. Tính risk với instability=0, failure_freq=0.")
-        elif not self.persistence_service:
-            logger.warning("[H06] PersistenceService không khả dụng. Tính risk với instability=0, failure_freq=0.")
-        else:
+        instability, failure_freq = 0.0, 0.0
+        
+        if test_id and self.persistence_service:
             try:
-                test_history = self.persistence_service.load_history_for_test(test_id)
-                if not isinstance(test_history, list):
-                    test_history = []
-                instability_val, failure_freq_val = self._calculate_metrics(test_history)
+                history = self.persistence_service.load_history_for_test(test_id)
+                instability, failure_freq = self._calculate_metrics(history)
             except Exception as e:
-                logger.error(
-                    f"[H06] Lỗi khi tải lịch sử cho {test_id}: {e}. "
-                    "Tính risk với instability=0, failure_freq=0."
-                )
+                logger.warning(f"[DecisionLayer] Lỗi load history: {e}")
 
-        logger.info(
-            f"[H06] Inputs cho Fuzzy: Priority={priority_val:.2f}, "
-            f"Instability={instability_val:.2%}, FailureFreq={failure_freq_val:.2%}"
-        )
-
+        # 3. Chạy Fuzzy Simulation
         try:
+            # Lưu ý: Simulation object thường không thread-safe.
+            # Trong môi trường production parallel, cần tạo instance mới hoặc dùng Lock.
+            # Ở đây giữ nguyên logic cũ của bạn.
             risk_simulator.input["priority"] = priority_val
-            risk_simulator.input["instability"] = instability_val
-            risk_simulator.input["failure_freq"] = failure_freq_val
+            risk_simulator.input["instability"] = instability
+            risk_simulator.input["failure_freq"] = failure_freq
+            
             risk_simulator.compute()
-
-            risk_score = _clamp01(risk_simulator.output.get("risk_score", 0.5))
-            logger.info(f"[H06] Điểm Rủi ro (Fuzzy): {risk_score:.2f}")
-            return risk_score
+            risk = self._clamp01(risk_simulator.output.get("risk_score", 0.5))
+            
+            logger.info(f"[DecisionLayer] Risk Calc: P={priority_val}, I={instability:.2f}, F={failure_freq:.2f} -> RISK={risk:.2f}")
+            return risk
         except Exception as e:
-            logger.error(f"[H06] Lỗi khi tính toán Fuzzy: {e}. Trả về risk score mặc định (0.5).")
+            logger.error(f"[DecisionLayer] Fuzzy Error: {e}. Default Risk=0.5")
             return 0.5
 
-    # =========================================================
-    # (H07) Adaptive Threshold theo Risk
-    # =========================================================
-
     def _calculate_adaptive_threshold(self, risk_score: float) -> float:
-        base = float(self.threshold_settings.get("base_threshold", 0.80))
-        max_thresh = float(self.threshold_settings.get("max_threshold", 0.95))
-
-        base = min(max(base, 0.0), 1.0)
-        max_thresh = min(max(max_thresh, base), 1.0)
-        risk_score = _clamp01(risk_score)
-
-        adaptive_threshold = base + (max_thresh - base) * risk_score
-        logger.info(f"[H07] Ngưỡng Tin cậy Thích ứng: {adaptive_threshold:.2f}")
-        return adaptive_threshold
+        """Risk càng cao -> Threshold càng khắt khe"""
+        base = float(self.threshold_settings.get("base_threshold", 0.6))
+        max_thresh = float(self.threshold_settings.get("max_threshold", 0.9))
+        
+        # Công thức tuyến tính: Threshold = Base + (Range * Risk)
+        threshold = base + (max_thresh - base) * risk_score
+        return self._clamp01(threshold)
 
     # =========================================================
-    # (H08) Ra quyết định
+    # 3. DECISION MAKING (CORE)
     # =========================================================
 
-    def make_decision(self, candidates: List[Dict[str, Any]], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        logger.info("[H08] Bắt đầu quá trình ra quyết định...")
-
+    def make_decision(
+        self, 
+        candidates: List[Dict[str, Any]], 
+        context: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        
+        logger.info("[DecisionLayer] Assessing candidates...")
         context = context or {}
-        risk_score = self._calculate_risk_score(context)
-        adaptive_threshold = self._calculate_adaptive_threshold(risk_score)
 
-        result = {
+        # 1. Tính toán ngưỡng chấp nhận
+        risk_score = self._calculate_risk_score(context)
+        threshold = self._calculate_adaptive_threshold(risk_score)
+
+        default_result = {
             "chosen_locator": None,
             "source": None,
             "confidence": 0.0,
             "risk_score": risk_score,
-            "adaptive_threshold": adaptive_threshold,
-            "status": "REJECTED",
+            "adaptive_threshold": threshold,
+            "status": "REJECTED"
         }
 
         if not candidates:
-            logger.warning("[H08] Quyết định: TỪ CHỐI (Không có ứng viên).")
-            return result
+            logger.info("[DecisionLayer] Không có candidate nào để đánh giá.")
+            return default_result
 
-        # normalize score list trước để sorting ổn định
-        norm_scores = self._normalize_scores(candidates)
-        for c, ns in zip(candidates, norm_scores):
-            c["_score_norm"] = ns
+        # 2. Chuẩn hóa & Sắp xếp Candidate
+        # Layer 2 đã trả về Score chuẩn (0-1), ta chỉ việc dùng.
+        processed_candidates = []
+        for c in candidates:
+            # Lấy thông tin locator. Hỗ trợ cả format cũ và mới
+            raw_locator = c.get("locator") # Mong đợi: (By.ID, 'val')
+            score = self._clamp01(c.get("score", 0.0))
+            source = c.get("source", "unknown")
 
-        sorted_candidates = sorted(
-            candidates,
-            key=lambda c: (
-                self.source_priority.get(c.get("source", "unknown"), 99),
-                -self._num(c.get("_score_norm", c.get("score", 0.0))),
-            ),
-        )
+            # Nếu locator chưa ở dạng Tuple (By, value), cần parse (đề phòng)
+            if not raw_locator:
+                # Logic fallback cho code cũ
+                by_str = c.get("by", "xpath")
+                val_str = c.get("value", "")
+                raw_locator = (self._resolve_by_string(by_str), val_str)
 
-        best = sorted_candidates[0]
-        best_score_raw = self._num(best.get("score", 0.0))
-        best_score_normalized = self._num(best.get("_score_norm", 0.0))
+            processed_candidates.append({
+                "locator": raw_locator,
+                "score": score,
+                "source": source,
+                "priority": self.source_priority.get(source, 99)
+            })
 
-        logger.info(
-            f"[H08] Ứng viên tốt nhất: {best} "
-            f"(Điểm thô: {best_score_raw}, Đã chuẩn hóa: {best_score_normalized:.2f})"
-        )
+        # Sắp xếp: Ưu tiên Source (nhỏ tốt hơn) -> Sau đó đến Score (cao tốt hơn)
+        processed_candidates.sort(key=lambda x: (x['priority'], -x['score']))
 
-        by_enum = self._resolve_by(best.get("by"))
-        value = best.get("value")
+        best_candidate = processed_candidates[0]
+        best_score = best_candidate["score"]
+        
+        logger.info(f"[DecisionLayer] Best Candidate: {best_candidate['locator']} (Score: {best_score:.2f} | Src: {best_candidate['source']})")
 
-        if by_enum is None or not value:
-            logger.error(f"[Lỗi H08] Ứng viên không hợp lệ (by='{best.get('by')}', value='{value}')")
-            return result
-
-        if best_score_normalized >= adaptive_threshold:
+        # 3. Ra quyết định
+        status = "REJECTED"
+        chosen_locator = None
+        
+        # Logic so sánh ngưỡng
+        if best_score >= threshold:
             status = "ACCEPTED"
-            logger.info(f"[H08] ACCEPTED: {best_score_normalized:.2f} >= {adaptive_threshold:.2f}")
-        elif best_score_normalized >= max(adaptive_threshold - self.soft_margin, 0.0):
-            status = "SOFT_ACCEPT"
-            logger.warning(
-                f"[H08] SOFT_ACCEPT: {best_score_normalized:.2f} hơi dưới ngưỡng "
-                f"{adaptive_threshold:.2f} (margin {self.soft_margin:.2f})"
-            )
-        else:
-            logger.warning(f"[H08] REJECTED: {best_score_normalized:.2f} < {adaptive_threshold:.2f}")
-            return result
+            chosen_locator = best_candidate["locator"]
+        elif best_score >= (threshold - self.soft_margin):
+            # Vùng chấp nhận mềm (nếu cần cảnh báo nhưng vẫn cho chạy)
+            status = "SOFT_ACCEPT" 
+            chosen_locator = best_candidate["locator"]
+            logger.warning(f"[DecisionLayer] Soft Accept: Score {best_score:.2f} gần đạt ngưỡng {threshold:.2f}")
 
-        result.update(
-            {
-                "chosen_locator": (by_enum, value),
-                "source": best.get("source"),
-                "confidence": best_score_normalized,
-                "status": status,
-            }
-        )
-        return result
+        if status == "REJECTED":
+            logger.warning(f"[DecisionLayer] Từ chối tất cả. Score cao nhất ({best_score:.2f}) < Threshold ({threshold:.2f})")
 
-    # alias cho tương thích nếu chỗ nào gọi tên khác
+        return {
+            "chosen_locator": chosen_locator,
+            "source": best_candidate["source"],
+            "confidence": best_score,
+            "risk_score": risk_score,
+            "adaptive_threshold": threshold,
+            "status": status
+        }
+
+    def _resolve_by_string(self, by_str: str):
+        """Helper map string sang Selenium By (cho trường hợp dữ liệu cũ)"""
+        mapping = {
+            "id": By.ID, "xpath": By.XPATH, "name": By.NAME, 
+            "class": By.CLASS_NAME, "css": By.CSS_SELECTOR
+        }
+        return mapping.get(str(by_str).lower(), By.XPATH)
+
+    # Alias
     decide = make_decision
