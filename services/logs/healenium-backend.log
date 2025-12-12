@@ -1,1 +1,0 @@
-2025-12-12 20:19:56.768  INFO 7 - [7878-exec-4] healenium                        : [Save Elements] Request: By.xpath(//*[contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "linen throw pillow")]) 
