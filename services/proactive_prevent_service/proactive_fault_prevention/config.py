@@ -11,14 +11,7 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "proactive_healing_db")
 # =========================================
 # 2. CẤU HÌNH TÍCH HỢP SYSTEM DB (POSTGRESQL) 
 # =========================================
-<<<<<<< Updated upstream
-REPO_CACHE_DIRECTORY = "D:/FinalProject/repo_cache"     # Thư mục cache cho repo đã clone
-# Mẫu regex để tìm các thuộc tính UI phổ biến
-# proactive_fault_prevention/config.py
 
-# Pattern tìm attribute có thể là locator
-# Bao gồm: id, className (JSX/TSX), data-testid, aria-label, role, name, title
-=======
 PG_DB_HOST = os.getenv("DB_HOST", "system_db") 
 PG_DB_PORT = os.getenv("DB_PORT", "5432")
 PG_DB_NAME = os.getenv("DB_NAME", "final")
@@ -42,7 +35,7 @@ REPO_CACHE_DIRECTORY = os.getenv("REPO_CACHE_DIR", "/app/repo_cache")
 
 # --- CẬP NHẬT MỚI TỪ BẠN ---
 # Pattern tìm attribute có thể là locator
->>>>>>> Stashed changes
+
 ATTRIBUTE_PATTERN = r'(id|className|data-testid|aria-label|role|name|title)="([^"]+)"'
 
 # Danh sách các đuôi file được coi là file UI cần được phân tích
