@@ -46,6 +46,17 @@ services:
       - app-network
     restart: "no"
 
+  mongodb:
+    image: mongo:latest
+    container_name: mongo_db
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo_data:/data/db # Lưu dữ liệu ra thư mục mongo_data ở ngoài máy thật
+    networks:
+      - app-network
+
   # ============================================================
   # 2. WEB SERVICES GROUP
   # ============================================================
@@ -128,6 +139,29 @@ services:
     command: gunicorn -w 2 -b 0.0.0.0:8000 run:app --reload
     networks:
       - app-network
+
+  proactive-service:
+    build: ./proactive_prevent_service
+    container_name: proactive_app 
+    environment:
+      - MONGO_URI=mongodb://mongo_db:27017/
+      - MONGO_DB_NAME=proactive_healing_db
+      - REPO_CACHE_DIR=/app/repo_cache
+      - DB_HOST=system_db 
+      - DB_PORT=5432
+      - DB_NAME=final
+      - DB_USER=app_user     
+      - DB_PASSWORD=app_password
+    depends_on:
+      - mongodb
+    ports:
+      - "8005:8000" 
+    volumes:
+      - ./proactive_prevent_service:/app
+      - ./proactive_prevent_service/repo_cache_data:/app/repo_cache
+    networks:
+      - app-network
+
   # ============================================================
   # 3. HEALENIUM CORE GROUP
   # ============================================================

@@ -1,4 +1,4 @@
-# File: webhook_server.py
+# File: webhook_server.py -> bỏ
 # Chức năng: F01 - Tiếp nhận sự kiện từ Git (GitHub)
 # Công nghệ: Python, Flask
 # Mục đích: Lắng nghe webhook, xác thực HMAC, và uỷ quyền xử lý cho main_processor.

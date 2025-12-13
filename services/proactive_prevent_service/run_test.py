@@ -1,4 +1,4 @@
-# run_test.py
+# run_test.py -> bỏ
 import os
 import sys
 from pathlib import Path
