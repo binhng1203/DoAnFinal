@@ -1,290 +1,284 @@
-# self_healing_v1/layers/healing_layer.py
-
 import logging
 import re
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Set
+from difflib import SequenceMatcher
 
-import requests  # giữ lại để tương thích / mở rộng sau này
+from lxml import html
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
-from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import StaleElementReferenceException
 
+# Cấu hình Logger
 logger = logging.getLogger(__name__)
-
-
-# ===================== JARO–WINKLER =====================
-
-def jaro_winkler_similarity(s1, s2) -> float:
-    """Tính độ tương đồng Jaro-Winkler giữa 2 chuỗi (trả về 0–1)."""
-    if not s1 or not s2:
-        return 0.0
-
-    s1, s2 = str(s1), str(s2)
-    len1, len2 = len(s1), len(s2)
-
-    match_distance = (max(len1, len2) // 2) - 1
-    matches1, matches2 = [False] * len1, [False] * len2
-    matches = 0
-    transpositions = 0
-
-    # Đếm matches
-    for i in range(len1):
-        start = max(0, i - match_distance)
-        end = min(i + match_distance + 1, len2)
-        for j in range(start, end):
-            if not matches2[j] and s1[i] == s2[j]:
-                matches1[i] = True
-                matches2[j] = True
-                matches += 1
-                break
-
-    if matches == 0:
-        return 0.0
-
-    # Đếm transpositions
-    k = 0
-    for i in range(len1):
-        if matches1[i]:
-            while not matches2[k]:
-                k += 1
-            if s1[i] != s2[k]:
-                transpositions += 1
-            k += 1
-
-    transpositions //= 2
-    jaro_similarity = (
-        matches / len1
-        + matches / len2
-        + (matches - transpositions) / matches
-    ) / 3.0
-
-    # Prefix (Winkler)
-    prefix = 0
-    for i in range(min(len1, len2)):
-        if s1[i] == s2[i]:
-            prefix += 1
-        else:
-            break
-        if prefix == 4:
-            break
-
-    final_score = jaro_similarity + (prefix * 0.1 * (1.0 - jaro_similarity))
-    return max(0.0, min(1.0, final_score))
-
 
 class HealingLayer:
     """
-    HealingLayer PYTHON – tầng fallback sau Healenium + KB.
-
-    API workflow mới:
-        HealingManager gọi:
-            candidates = healing_layer.get_candidates(driver, by, value)
-
-    Candidates trả về format:
-        {
-          "by": "xpath",
-          "value": "...",
-          "score": 0.xx,
-          "source": "heuristics"
-        }
+    Layer 2: Healing Engine
+    Nhiệm vụ: Phân tích DOM hiện tại (Snapshot), so sánh với thông tin Element gốc
+    (từ DB hoặc Locator string) để tìm ứng viên thay thế tốt nhất.
+    
+    Công nghệ: 
+    - lxml (DOM Parsing siêu tốc)
+    - Weighted Scoring (Chấm điểm trọng số)
+    - LCS (So sánh chuỗi con chung dài nhất)
     """
 
-    def __init__(
-        self,
-        driver: Optional[WebDriver] = None,
-        healenium_host: str = "http://localhost:7878",
-        request_timeout: float = 10.0,
-        disable_healing: bool = False,
-        session: Optional[requests.Session] = None,
-        config: Optional[Dict[str, Any]] = None,
-    ):
-        self.driver = driver
-        self.request_timeout = request_timeout
-        self.disable_healing = disable_healing
-        self._session = session or requests.Session()
+    def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
+        
+        # --- CẤU HÌNH TRỌNG SỐ (WEIGHTS) ---
+        # Tổng trọng số nên bằng 1.0. Bạn có thể điều chỉnh tùy dự án.
+        self.weights = {
+            "id": 0.25,        # ID: Quan trọng nhưng dễ bị đổi (dynamic id)
+            "text": 0.30,      # Text: Quan trọng với người dùng (Button label, Link text)
+            "class": 0.20,     # Class: Thể hiện cấu trúc/style
+            "tag": 0.10,       # Tag: Ít khi đổi (VD: button -> a)
+            "attributes": 0.15 # Các thuộc tính khác (name, href, type, role...)
+        }
+        
+        # Ngưỡng chấp nhận: Chỉ lấy candidate có điểm >= mức này
+        self.min_score_threshold = float(self.config.get("min_score", 0.65))
 
-        self.backend_url = healenium_host.rstrip("/")
-
-        logger.info(
-            "[HealingLayer] Init (workflow mới). "
-            "Healenium là engine chính, layer Python chỉ dùng heuristics fallback. "
-            f"Healenium-backend (chỉ tham chiếu): {self.backend_url}"
-        )
-
-    # ===================== PUBLIC =====================
-
-    def get_candidates(self, driver: WebDriver, by, value) -> List[Dict[str, Any]]:
-        """
-        Hàm PUBLIC mà HealingManager workflow mới gọi.
-        """
-        if self.disable_healing:
-            logger.info("[HealingLayer] Healing bị tắt (disable_healing=True).")
-            return []
-
-        if self.driver is None:
-            self.driver = driver
-
-        broken_tag, broken_text = self._parse_broken_locator(by, value)
-
-        logger.info(
-            "[HealingLayer] BẮT ĐẦU fallback bằng heuristics. "
-            f"Broken locator: by={by}, value={value}, "
-            f"tag='{broken_tag}', text='{broken_text}'"
-        )
-
-        heuristic_candidates = self._heuristic_candidates(
-            driver, broken_tag, broken_text
-        )
-
-        merged = self._dedup_and_sort(heuristic_candidates)
-        logger.info(f"[HealingLayer] Candidates (fallback): total={len(merged)}")
-        return merged
-
-    # Alias để tương thích những chỗ code cũ (nếu còn)
-    def generate_candidates(self, driver: WebDriver, by, value) -> List[Dict[str, Any]]:
-        return self.get_candidates(driver, by, value)
-
-    # ===================== PRIVATE – HEURISTICS =====================
-
-    def _heuristic_candidates(
-        self,
-        driver: WebDriver,
-        broken_tag: str,
-        broken_text: Optional[str],
+    def get_candidates(
+        self, 
+        driver: WebDriver, 
+        by: str, 
+        value: str, 
+        selector_info: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        if not broken_text:
-            logger.debug(
-                "[HealingLayer] [Heuristics] Không tìm được text trong locator hỏng."
-            )
+        """
+        Hàm chính để tìm kiếm phần tử thay thế.
+        
+        Args:
+            driver: Selenium WebDriver instance.
+            by: Loại locator gốc (By.ID, By.XPATH...).
+            value: Giá trị locator gốc.
+            selector_info: (Quan trọng) Dictionary chứa metadata từ bảng healenium.selector.
+                           Nếu None, sẽ fallback sang parse chuỗi 'value'.
+        
+        Returns:
+            List các candidates đã được chấm điểm, sắp xếp giảm dần.
+        """
+        logger.info(f"[HealingLayer] Bắt đầu quét DOM tìm candidate cho: {value}")
+
+        # 1. Xây dựng Chân dung mục tiêu (Target Profile)
+        # Đây là bước quyết định độ chính xác. Dữ liệu từ DB luôn tốt hơn regex string.
+        if selector_info:
+            logger.info("[HealingLayer] Sử dụng dữ liệu chi tiết từ Healenium Database.")
+            target_profile = self._normalize_db_info(selector_info)
+        else:
+            logger.warning("[HealingLayer] Không có dữ liệu DB. Sử dụng Fallback (Parse String).")
+            target_profile = self._parse_locator_string(value)
+            
+        logger.debug(f"[HealingLayer] Target Profile: {target_profile}")
+
+        # 2. Lấy Snapshot DOM (Hiệu năng cao)
+        # Lấy toàn bộ HTML 1 lần duy nhất, tránh gọi driver nhiều lần
+        page_source = driver.page_source
+        if not page_source:
+            logger.error("[HealingLayer] Page source trống. Không thể healing.")
             return []
 
-        min_score = float(self.config.get("min_similarity", 0.5))
-
-        logger.info(
-            "[HealingLayer] [Heuristics] Đang tìm ứng viên cho: "
-            f"tag='{broken_tag}', text='{broken_text}', min_score={min_score}"
-        )
-
-        candidates: List[Dict[str, Any]] = []
-
         try:
-            if broken_tag == "*" or not broken_tag:
-                elements_on_page = driver.find_elements(By.XPATH, "//*")
-            else:
-                elements_on_page = driver.find_elements(By.TAG_NAME, broken_tag)
+            # Parse HTML thành Tree Object trong RAM bằng lxml
+            tree = html.fromstring(page_source)
         except Exception as e:
-            logger.error(
-                "[HealingLayer] [Heuristics] Lỗi khi quét DOM theo tag '%s': %s",
-                broken_tag,
-                e,
-            )
+            logger.error(f"[HealingLayer] Lỗi parse DOM bằng lxml: {e}")
             return []
 
-        for element in elements_on_page:
-            try:
-                candidate_text = element.text or ""
-                if not candidate_text:
-                    continue
+        # 3. Khoanh vùng tìm kiếm (Pre-filtering)
+        # Chỉ quét các node cùng Tag để tối ưu tốc độ.
+        # Nếu Tag gốc là '*', quét toàn bộ (chậm hơn).
+        search_tag = target_profile['tag']
+        if not search_tag or search_tag == '*':
+            xpath_query = "body//*" # Quét toàn bộ body
+        else:
+            xpath_query = f"//{search_tag}"
+            
+        candidates_nodes = tree.xpath(xpath_query)
+        logger.info(f"[HealingLayer] Tìm thấy {len(candidates_nodes)} node tiềm năng (Tag: '{search_tag}'). Đang chấm điểm...")
 
-                score = jaro_winkler_similarity(candidate_text, broken_text)
-                if score < min_score:
-                    continue
+        scored_candidates = []
 
-                candidate_xpath = self._generate_stable_xpath(element)
-                if candidate_xpath:
-                    candidates.append(
-                        {
-                            "by": "xpath",  # DecisionLayer sẽ map sang By.XPATH
-                            "value": candidate_xpath,
-                            "score": score,
-                            "source": "heuristics",
-                        }
-                    )
-            except StaleElementReferenceException:
-                continue
-            except Exception:
+        # 4. Vòng lặp chấm điểm (The Core Algorithm)
+        for node in candidates_nodes:
+            # Bỏ qua các node script/style vô nghĩa
+            if node.tag in ['script', 'style', 'noscript']:
                 continue
 
-        return candidates
+            score, details = self._calculate_weighted_score(target_profile, node)
+            
+            if score >= self.min_score_threshold:
+                # Chuyển đổi Node lxml ngược lại thành XPath để Selenium dùng được
+                reconstructed_xpath = self._get_xpath_from_node(tree, node)
+                
+                candidate_data = {
+                    "locator": (By.XPATH, reconstructed_xpath),
+                    "value": reconstructed_xpath,
+                    "score": score,
+                    "source": "healing_layer_db" if selector_info else "healing_layer_fallback",
+                    "details": details # Lý do tại sao chọn (dùng cho Decision Layer & Logging)
+                }
+                scored_candidates.append(candidate_data)
 
-    # ===================== HELPERS =====================
+        # 5. Sắp xếp & Trả về
+        # Sort điểm cao nhất lên đầu
+        scored_candidates.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Chỉ lấy Top 5 để giảm tải cho các layer sau
+        top_candidates = scored_candidates[:5]
+        
+        if top_candidates:
+            best = top_candidates[0]
+            logger.info(f"[HealingLayer] Best Candidate: Score {best['score']:.2f} | Details: {best['details']}")
+        else:
+            logger.info("[HealingLayer] Không tìm thấy ứng viên nào vượt qua ngưỡng điểm.")
 
-    def _parse_broken_locator(self, by: str, value: str) -> Tuple[str, Optional[str]]:
+        return top_candidates
+
+    # ========================================================
+    # LOGIC TÍNH ĐIỂM (WEIGHTED SCORING ENGINE)
+    # ========================================================
+
+    def _calculate_weighted_score(self, target: Dict[str, Any], node) -> Tuple[float, Dict[str, Any]]:
         """
-        Phân tích locator bị hỏng (ưu tiên XPath).
-
-        Support:
-          - by == By.XPATH
-          - by == "xpath" (string)
+        Tính điểm tương đồng giữa Target (Gốc) và Node (Hiện tại).
+        Trả về: (Total Score, Details Dictionary)
         """
-        by_str = by.value if hasattr(by, "value") else str(by)
-        if by != By.XPATH and by_str.lower() != "xpath":
-            return "*", None
+        current_score = 0.0
+        details = {}
 
-        # Lấy tag từ đầu XPath: //button[...] -> button
-        tag_match = re.search(r"^\/\/(?P<tag>[\w\*]+)", value or "")
-        tag = tag_match.group("tag") if tag_match else "*"
+        # --- 1. ID Score (Sử dụng LCS) ---
+        node_id = node.get('id', '')
+        if target['id'] and node_id:
+            sim = self._lcs_similarity(target['id'], node_id)
+            current_score += sim * self.weights['id']
+            if sim > 0.5: details['id'] = f"{sim:.2f}"
+        
+        # --- 2. Text Score (Sử dụng LCS) ---
+        # lxml text_content() lấy cả text của con, strip() để loại bỏ whitespace thừa
+        node_text = (node.text_content() or "").strip()
+        target_text = target['text']
+        
+        if target_text:
+            if node_text:
+                sim = self._lcs_similarity(target_text, node_text)
+                current_score += sim * self.weights['text']
+                if sim > 0.5: details['text'] = f"{sim:.2f}"
+        else:
+            # Nếu target gốc không có text, ta có thể bỏ qua hoặc chia lại trọng số.
+            # Ở đây giữ nguyên logic đơn giản: không cộng điểm text.
+            pass
 
-        # text()='XYZ'
-        text_match = re.search(
-            r"text\(\)\s*=\s*['\"](?P<text>.*?)['\"]", value or ""
-        )
-        if text_match:
-            return tag, text_match.group("text")
+        # --- 3. Class Score (Sử dụng Jaccard Index) ---
+        # Class là tập hợp, ví dụ ['btn', 'btn-primary']
+        node_classes = set(node.get('class', '').split())
+        target_classes = set(target['class'])
+        
+        if target_classes and node_classes:
+            intersection = target_classes.intersection(node_classes)
+            union = target_classes.union(node_classes)
+            if union:
+                # Jaccard = Giao / Hợp
+                jaccard_index = len(intersection) / len(union)
+                current_score += jaccard_index * self.weights['class']
+                if jaccard_index > 0.3: details['class'] = f"{len(intersection)} matched"
 
-        # contains(text(),'XYZ')
-        text_match_contains = re.search(
-            r"contains\s*\(\s*text\(\)\s*,\s*['\"](?P<text>.*?)['\"]",
-            value or "",
-        )
-        if text_match_contains:
-            return tag, text_match_contains.group("text")
+        # --- 4. Tag Score (Exact Match) ---
+        if node.tag == target['tag']:
+            current_score += self.weights['tag']
 
-        # normalize-space(.)='XYZ'
-        text_match_norm = re.search(
-            r"normalize-space\s*\(\s*\.\s*\)\s*=\s*['\"](?P<text>.*?)['\"]",
-            value or "",
-        )
-        if text_match_norm:
-            return tag, text_match_norm.group("text")
+        # --- 5. Other Attributes Score ---
+        # So sánh các attribute khác như name, href, type...
+        target_attrs = target['attributes']
+        if target_attrs:
+            match_count = 0
+            total_checked = 0
+            for k, v in target_attrs.items():
+                if k in ['id', 'class']: continue # Đã tính riêng
+                
+                total_checked += 1
+                node_val = node.get(k)
+                if node_val and str(node_val) == str(v): # So sánh bằng tương đối
+                    match_count += 1
+            
+            if total_checked > 0:
+                attr_ratio = match_count / total_checked
+                current_score += attr_ratio * self.weights['attributes']
+                if attr_ratio > 0: details['attrs'] = f"{match_count}/{total_checked}"
 
-        return tag, None
+        return current_score, details
 
-    def _generate_stable_xpath(self, element: WebElement) -> Optional[str]:
+    # ========================================================
+    # HELPER FUNCTIONS (TIỆN ÍCH)
+    # ========================================================
+
+    def _lcs_similarity(self, s1: str, s2: str) -> float:
+        """Tính độ tương đồng chuỗi con chung dài nhất (LCS) - 0.0 đến 1.0"""
+        if not s1 or not s2: return 0.0
+        return SequenceMatcher(None, s1, s2).ratio()
+
+    def _get_xpath_from_node(self, tree, node) -> str:
+        """Lấy XPath tuyệt đối của node từ lxml tree"""
+        return tree.getpath(node)
+
+    def _normalize_db_info(self, db_info: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Sinh XPath "ổn định" cho 1 element:
-          - Nếu có id => //*[@id='...']
-          - Nếu có text => //tag[normalize-space()='TEXT']
+        Chuẩn hóa dữ liệu JSON từ Healenium DB về format nội bộ.
+        Healenium thường lưu: {tagName: '...', id: '...', classes: [...], innerText: '...'}
         """
-        try:
-            el_id = element.get_attribute("id")
-            if el_id:
-                return f"//*[@id='{el_id}']"
+        classes = db_info.get('classes') or []
+        # Đề phòng trường hợp classes lưu dưới dạng string thay vì list
+        if isinstance(classes, str):
+            classes = classes.split()
 
-            el_text = element.text or ""
-            if el_text:
-                safe_text = el_text.replace("'", "").replace('"', "").strip()
-                if safe_text:
-                    return f"//{element.tag_name}[normalize-space()='{safe_text}']"
+        return {
+            'tag': db_info.get('tagName', '*'),
+            'id': db_info.get('id') or '',
+            'text': db_info.get('innerText') or '',
+            'class': classes,
+            'attributes': db_info.get('otherAttributes') or {}
+        }
 
-            return None
-        except StaleElementReferenceException:
-            return None
-        except Exception:
-            return None
+    def _parse_locator_string(self, value: str) -> Dict[str, Any]:
+        """
+        Fallback: Cố gắng trích xuất thông tin từ chuỗi XPath/CSS cũ.
+        Hỗ trợ: text(), contains(), normalize-space()
+        """
+        profile = {
+            'tag': '*',
+            'id': '',
+            'text': '',
+            'class': [],
+            'attributes': {}
+        }
+        
+        # 1. Tag (//button...)
+        tag_match = re.search(r"//([\w\-]+)", value)
+        if tag_match: profile['tag'] = tag_match.group(1)
+        
+        # 2. ID (@id='...')
+        id_match = re.search(r"@id=['\"](.*?)['\"]", value)
+        if id_match: profile['id'] = id_match.group(1)
+        
+        # 3. Text (Logic quan trọng)
+        # Case A: text()='...'
+        text_match = re.search(r"text\(\)\s*=\s*['\"](.*?)['\"]", value)
+        
+        # Case B: contains(text(), '...')
+        text_cont = re.search(r"contains\(text\(\)\s*,\s*['\"](.*?)['\"]", value)
+        
+        # Case C: normalize-space()='...'  <-- CẦN THÊM CÁI NÀY
+        text_norm = re.search(r"normalize-space\(\)\s*=\s*['\"](.*?)['\"]", value)
 
-    def _dedup_and_sort(self, arr: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        seen = set()
-        uniq: List[Dict[str, Any]] = []
+        if text_match: 
+            profile['text'] = text_match.group(1)
+        elif text_cont: 
+            profile['text'] = text_cont.group(1)
+        elif text_norm: 
+            profile['text'] = text_norm.group(1) # <--- Bắt được text "Add to Cart"
 
-        for c in arr:
-            k = (c.get("by"), c.get("value"))
-            if k in seen:
-                continue
-            seen.add(k)
-            uniq.append(c)
+        # 4. Class (@class='...')
+        class_match = re.search(r"@class=['\"](.*?)['\"]", value)
+        if class_match: profile['class'] = class_match.group(1).split()
 
-        uniq.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
-        return uniq
+        return profile

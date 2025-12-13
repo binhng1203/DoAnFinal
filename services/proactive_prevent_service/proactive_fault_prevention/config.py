@@ -11,9 +11,18 @@ MONGO_DB_NAME = "proactive_healing_db"
 # =========================================
 REPO_CACHE_DIRECTORY = "D:/FinalProject/repo_cache"     # Thư mục cache cho repo đã clone
 # Mẫu regex để tìm các thuộc tính UI phổ biến
-ATTRIBUTE_PATTERN = r'\b(id|class|name|data-testid)\s*=\s*["\'](.*?)["\']'
+# proactive_fault_prevention/config.py
+
+# Pattern tìm attribute có thể là locator
+# Bao gồm: id, className (JSX/TSX), data-testid, aria-label, role, name, title
+ATTRIBUTE_PATTERN = r'(id|className|data-testid|aria-label|role|name|title)="([^"]+)"'
+
 # Danh sách các đuôi file được coi là file UI cần được phân tích
-UI_FILE_EXTENSIONS = ('.html', '.jsx', '.vue', '.tsx', '.css', '.scss')
+UI_FILE_EXTENSIONS = (
+    ".html", ".htm", ".xml", ".jsx", ".tsx",
+    ".vue", ".svelte", ".hbs", ".handlebars"
+)
+
 # Ngưỡng điểm so khớp mờ để coi là một dự đoán hợp lệ
 FUZZY_MATCH_THRESHOLD = 85
 # Cấu hình trọng số cho các thuật toán so khớp mờ

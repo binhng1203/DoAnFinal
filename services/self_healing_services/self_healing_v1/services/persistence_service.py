@@ -1,4 +1,3 @@
-# self_healing_v1/services/persistence_service.py
 import os
 import json
 import hashlib
@@ -9,6 +8,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import psycopg2
 from psycopg2.extras import Json, RealDictCursor
 
+# Giả sử import HealingContext và StorageService từ project của bạn
 from ..context import HealingContext
 from .storage_service import StorageService
 
@@ -25,29 +25,31 @@ VISUAL_VALIDATION_TABLE = f"{SCHEMA}.visual_validation_event"
 
 class PersistenceService:
     """
-    PersistenceService (workflow mới hoàn toàn):
-    ...
+    PersistenceService quản lý việc lưu trữ log, history vào DB Report 
+    và truy vấn dữ liệu từ DB Healenium gốc.
     """
 
     def __init__(self, db_config: Dict[str, Any]):
         self.conn = None
         self.storage_service: Optional[StorageService] = None
 
+        # 1. Kết nối DB
         try:
             cfg = {**db_config}
             cfg.setdefault("host", os.environ.get("REPORT_DB_HOST", "localhost"))
             cfg["port"] = int(cfg.get("port", os.environ.get("REPORT_DB_PORT", 5432)))
-            cfg.setdefault("dbname", os.environ.get("REPORT_DB_NAME", "healenium"))
-            cfg.setdefault("user", os.environ.get("REPORT_DB_USER", "healenium_user"))
+            cfg.setdefault("dbname", os.environ.get("REPORT_DB_NAME", "final"))
+            cfg.setdefault("user", os.environ.get("REPORT_DB_USER", "postgres"))
             cfg.setdefault(
                 "password",
-                os.environ.get("REPORT_DB_PASSWORD", "YDk2nmNs4s9aCP6K"),
+                os.environ.get("REPORT_DB_PASSWORD", "postgres"),
             )
 
             self.conn = psycopg2.connect(**cfg)
             self.conn.autocommit = False
 
             with self.conn.cursor() as cur:
+                # Set search_path để ưu tiên schema custom_analytics và healenium
                 cur.execute(f"SET search_path TO {SCHEMA}, healenium, public;")
             self.conn.commit()
 
@@ -60,7 +62,7 @@ class PersistenceService:
             logger.error(f"[PersistenceService] Lỗi khởi tạo: {e}")
             self.conn = None
 
-        # NEW: StorageService dùng để upload ảnh (baseline/current/diff) và trả URL
+        # 2. Khởi tạo StorageService (Upload ảnh)
         try:
             base_public_url = os.getenv(
                 "VISUAL_BASE_URL", "http://localhost:8000/static/visual"
@@ -98,9 +100,6 @@ class PersistenceService:
             return None
 
     def _extract_test_context(self, context: HealingContext) -> Dict[str, Any]:
-        """
-        Chuẩn hóa test_context thành dict.
-        """
         tc = getattr(context, "test_context", {}) or {}
         if isinstance(tc, dict):
             return tc
@@ -140,9 +139,6 @@ class PersistenceService:
     def save_raw_run_and_get_id(
         self, test_id: str, app_version: str | None = None
     ) -> Optional[int]:
-        """
-        Ghi bản ghi raw trước khi chạy test.
-        """
         if not self.conn:
             return None
 
@@ -180,9 +176,6 @@ class PersistenceService:
                 cur.execute(query, log_entry)
                 run_id = cur.fetchone()[0]
             self.conn.commit()
-            logger.info(
-                f"[PersistenceService] save_raw_run_and_get_id: test_id={test_id}, run_id={run_id}"
-            )
             return run_id
         except Exception as e:
             logger.error(f"[PersistenceService] save_raw_run_and_get_id lỗi: {e}")
@@ -193,10 +186,6 @@ class PersistenceService:
     def _update_run_history_on_heal_status(
         self, run_id: int, heal_status: str, risk_score: float | None = None
     ):
-        """
-        Sau khi heal xong (SUCCESS/FAILURE), update run_history.
-        - raw_result luôn bị set thành 'Fail' vì đã cần đến self-healing.
-        """
         if not self.conn:
             return
 
@@ -229,12 +218,6 @@ class PersistenceService:
     def update_run_history_final_status(
         self, run_id: int, final_status: str, total_duration_ms: int | None = None
     ):
-        """
-        Update final_result khi test kết thúc.
-        Đồng thời:
-          - Nếu final_status='Pass' và total_heal_attempts=0 và raw_result='N/A'
-            => coi như test gốc pass không cần heal -> raw_result='Pass'.
-        """
         if not self.conn:
             return
         try:
@@ -370,9 +353,7 @@ class PersistenceService:
         if not self.conn:
             return
 
-        # Normalize project_id: nếu None thì dùng 0 để ON CONFLICT hoạt động
         project_id_norm = project_id if project_id is not None else 0
-
         succ_inc = 1 if success else 0
         fail_inc = 0 if success else 1
 
@@ -437,7 +418,7 @@ class PersistenceService:
     def _insert_heal_event(
         self,
         context: HealingContext,
-        engine: str,  # 'NATIVE' | 'PYTHON' | 'NONE'
+        engine: str,
         success: bool,
         locator_old: str,
         locator_new: str | None,
@@ -457,9 +438,6 @@ class PersistenceService:
         started_at = getattr(context, "healing_started_at", None) or self._now_utc()
         ended_at = self._now_utc()
         
-        # duration_ms fix: đảm bảo là số nguyên
-        duration_ms = int(getattr(context, "healing_duration_ms", 0) or 0)
-
         confidence = getattr(context, "confidence_of_chosen", None)
         risk_score = getattr(context, "risk_score", None)
         threshold = getattr(context, "adaptive_threshold", None)
@@ -519,7 +497,6 @@ class PersistenceService:
                 cur.execute(sql, params)
             self.conn.commit()
 
-            # NEW: mọi heal_event đều cập nhật test_run_history
             if run_id is not None:
                 try:
                     self._update_run_history_on_heal_status(
@@ -529,7 +506,7 @@ class PersistenceService:
                     )
                 except Exception as e2:
                     logger.error(
-                        "[PersistenceService] Lỗi update_run_history_on_heal_status trong _insert_heal_event: %s",
+                        "[PersistenceService] Lỗi update_run_history_on_heal_status: %s",
                         e2,
                     )
 
@@ -546,7 +523,7 @@ class PersistenceService:
         *,
         test_id: str | None,
         run_id: int | None,
-        scope: str,  # 'ELEMENT' | 'FULLSCREEN'
+        scope: str,
         target_name: str,
         page_url: str | None,
         status: str,
@@ -556,10 +533,6 @@ class PersistenceService:
         current_path: Optional[str] = None,
         diff_path: Optional[str] = None,
     ):
-        """
-        Lưu event visual validation (element/fullscreen) vào DB.
-        Ảnh được upload qua StorageService -> URL. DB chỉ giữ URL.
-        """
         if not self.conn:
             return
 
@@ -568,19 +541,12 @@ class PersistenceService:
         if self.storage_service:
             try:
                 from pathlib import Path
-
                 if baseline_path:
-                    baseline_url = self.storage_service.upload_file(
-                        Path(baseline_path), scope.lower()
-                    )
+                    baseline_url = self.storage_service.upload_file(Path(baseline_path), scope.lower())
                 if current_path:
-                    current_url = self.storage_service.upload_file(
-                        Path(current_path), scope.lower()
-                    )
+                    current_url = self.storage_service.upload_file(Path(current_path), scope.lower())
                 if diff_path:
-                    diff_url = self.storage_service.upload_file(
-                        Path(diff_path), scope.lower()
-                    )
+                    diff_url = self.storage_service.upload_file(Path(diff_path), scope.lower())
             except Exception as e:
                 logger.error(
                     f"[PersistenceService] Upload visual file lỗi: {e}",
@@ -599,19 +565,10 @@ class PersistenceService:
                 %s, %s, %s
             );
         """
-
         params = (
-            test_id,
-            run_id,
-            scope,
-            target_name,
-            page_url,
-            status,
-            ssim_score,
-            Json(extra_metrics or {}),
-            baseline_url,
-            current_url,
-            diff_url,
+            test_id, run_id, scope, target_name,
+            page_url, status, ssim_score, Json(extra_metrics or {}),
+            baseline_url, current_url, diff_url,
         )
 
         try:
@@ -633,21 +590,16 @@ class PersistenceService:
     def log_healing_success(
         self,
         context: HealingContext,
-        engine: str,  # 'NATIVE' or 'PYTHON'
+        engine: str,
         original_locator: Tuple[str, str],
         healed_locator: Tuple[str, str],
         best_candidate: Dict[str, Any],
         basis_json: Dict[str, Any] | None = None,
     ):
-        """
-        Gọi khi heal SUCCESS (native hoặc python).
-        """
         test_ctx = self._extract_test_context(context)
-
         locator_old_str = self._fmt_locator(*original_locator)
         locator_new_str = self._fmt_locator(*healed_locator)
 
-        # 1) insert heal_event (đồng thời update test_run_history bên trong)
         self._insert_heal_event(
             context=context,
             engine=engine,
@@ -659,7 +611,6 @@ class PersistenceService:
             basis_json=basis_json,
         )
 
-        # 2) upsert KB
         fingerprint = getattr(context, "fingerprint", None) or {
             "locator_by": original_locator[0],
             "locator_value": original_locator[1],
@@ -678,30 +629,23 @@ class PersistenceService:
             app_version=app_version,
         )
 
-        # 3) update instability
         self._update_locator_instability(
             locator_old=locator_old_str,
             success=True,
         )
-
         logger.info("[PersistenceService] Đã lưu heal SUCCESS (workflow mới).")
 
     def log_healing_failure(
         self,
         context: HealingContext,
-        engine: str,  # 'NATIVE' or 'PYTHON'
+        engine: str,
         reason: str,
         basis_json: Dict[str, Any] | None = None,
     ):
-        """
-        Gọi khi heal FAILURE hoặc Decision REJECTED.
-        """
         test_ctx = self._extract_test_context(context)
-
         broken = getattr(context, "broken_locator", ("unknown", "unknown"))
         locator_old_str = self._fmt_locator(*broken)
 
-        # 1) insert heal_event (đồng thời update test_run_history bên trong)
         self._insert_heal_event(
             context=context,
             engine=engine,
@@ -713,7 +657,6 @@ class PersistenceService:
             basis_json=basis_json,
         )
 
-        # 2) upsert KB FAIL (new_locator tạm để giữ unique)
         fingerprint = getattr(context, "fingerprint", None) or {
             "locator_by": broken[0],
             "locator_value": broken[1],
@@ -732,30 +675,16 @@ class PersistenceService:
             app_version=app_version,
         )
 
-        # 3) update instability
         self._update_locator_instability(
             locator_old=locator_old_str,
             success=False,
         )
-
         logger.info(f"[PersistenceService] Đã lưu heal FAILURE (reason={reason}).")
 
-    # ----------------------------------------------------------------------
-    # Backward compatible API: HealingManager vẫn gọi save_healing_event(context)
-    # ----------------------------------------------------------------------
     def save_healing_event(self, context: HealingContext):
-        """
-        Manager v1 gọi trong finally.
-        Map sang log_healing_success / log_healing_failure.
-        """
-        # [FIX] Lỗi: violates check constraint "chk_engine"
-        # Nếu engine_used là 'RAW' (tìm thấy ngay), nghĩa là không có healing -> Bỏ qua
         engine = getattr(context, "engine_used", "PYTHON")
         if engine == "RAW":
             return
-
-        # [FIX] Mapping engine name để tránh lỗi DB Constraint (nếu DB chưa update enum)
-        # Ví dụ: BACKEND_HISTORY -> NATIVE
         if engine and engine.startswith("BACKEND"):
             engine = "NATIVE"
         
@@ -766,7 +695,6 @@ class PersistenceService:
             chosen = getattr(context, "chosen_locator", None)
             best_cand = getattr(context, "best_candidate", None)
 
-            # Trường hợp thiếu data (dù báo success nhưng chưa có locator mới)
             if not broken or not chosen or not best_cand:
                 self.log_healing_failure(
                     context, engine=engine, reason="MISSING_CONTEXT"
@@ -790,76 +718,176 @@ class PersistenceService:
             )
 
     # ----------------------------------------------------------------------
-
-    # [CẬP NHẬT] services/self_healing_services/services/persistence_service.py
-
-    # ... (Giữ nguyên các phần import và init cũ) ...
-
-    # ----------------------------------------------------------------------
     # 6) [NEW] Query Healenium Database trực tiếp
     # ----------------------------------------------------------------------
-    def get_selector_from_healenium_db(self, locator_value: str) -> Optional[Dict[str, Any]]:
+    def get_selector_from_healenium_db(self, locator_value: str, only_xpath: bool = False, exact: bool = False):
         """
-        Truy vấn bảng healenium.selector để lấy node_path dựa trên locator value.
+        Tìm baseline trong healenium.selector.
+
+        - locator_value: chuỗi (hoặc một phần chuỗi) bạn muốn tìm trong field 'value' của JSON locator.
+        - only_xpath: nếu True, lọc thêm điều kiện type contains 'xpath'.
+        - exact: nếu True thì không bọc wildcard '%' (tìm chính xác), mặc định tìm substring.
+
+        Trả về dict row đầu tiên hoặc None.
         """
         if not self.conn:
+            print("❌ [PersistenceService] No DB connection")
             return None
 
-        # Trong DB, cột locator lưu dạng JSON string: {"type": "By.xpath", "value": "//button..."}
-        # Chúng ta dùng LIKE để tìm chuỗi value bên trong JSON đó.
-        # json.dumps sẽ thêm dấu ngoặc kép và escape ký tự, ta cắt bỏ 2 dấu ngoặc bao quanh
+        cursor = None
         try:
-            json_val = json.dumps(locator_value)
-            search_pattern = json_val[1:-1] # Ví dụ: //button[@id=\"btn\"]
-        except:
-            search_pattern = locator_value
+            cursor = self.conn.cursor()
+            # Detect driver module to decide Postgres (psycopg) vs MySQL (pymysql, mysqlclient)
+            conn_module = type(self.conn).__module__ if self.conn else ""
+            is_postgres = "psycopg" in conn_module or "pg8000" in conn_module or "psycopg2" in conn_module
 
-        sql = """
-            SELECT locator, node_path
-            FROM healenium.selector
-            WHERE locator LIKE %s
-            ORDER BY create_date DESC -- Lấy cái mới nhất nếu có trùng
-            LIMIT 1;
-        """
-        
-        try:
-            with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
-                # Tìm kiếm pattern %"value"% trong cột locator
-                cur.execute(sql, (f'%{search_pattern}%',))
-                row = cur.fetchone()
-                
-                if row:
-                    try:
-                        # Parse JSON từ string trong DB (nếu driver trả về string)
-                        # psycopg2 với RealDictCursor đôi khi tự convert jsonb, nhưng cột này thường là text
-                        raw_locator = row['locator']
-                        raw_node_path = row['node_path']
+            # prepare parameter (wildcard unless exact)
+            param = locator_value if exact else f"%{locator_value}%"
 
-                        locator_data = json.loads(raw_locator) if isinstance(raw_locator, str) else raw_locator
-                        node_path_data = json.loads(raw_node_path) if isinstance(raw_node_path, str) else raw_node_path
-                        
-                        return {
-                            "locator": locator_data,
-                            "node_path": node_path_data
-                        }
-                    except json.JSONDecodeError:
-                        logger.warning(f"[PersistenceService] Lỗi parse JSON DB: {row}")
-                        return None
+            if is_postgres:
+                # Use json operator ->> to extract 'value'
+                where_parts = ["(locator::json ->> 'value') ILIKE %s"]
+                params = [param]
+                if only_xpath:
+                    where_parts.append("(locator::json ->> 'type') ILIKE %s")
+                    params.append("%xpath%")
+                where_clause = " AND ".join(where_parts)
+
+                sql = f"""
+                    SELECT * FROM healenium.selector
+                    WHERE {where_clause}
+                    ORDER BY create_date DESC
+                    LIMIT 1
+                """
+            else:
+                # MySQL (JSON_EXTRACT + JSON_UNQUOTE)
+                where_parts = ["JSON_UNQUOTE(JSON_EXTRACT(locator, '$.value')) LIKE %s"]
+                params = [param]
+                if only_xpath:
+                    where_parts.append("JSON_UNQUOTE(JSON_EXTRACT(locator, '$.type')) LIKE %s")
+                    params.append("%xpath%")
+                where_clause = " AND ".join(where_parts)
+
+                sql = f"""
+                    SELECT * FROM healenium.selector
+                    WHERE {where_clause}
+                    ORDER BY create_date DESC
+                    LIMIT 1
+                """
+
+            # Debug prints (giúp debug nếu cần)
+            print("🔎 [DB DEBUG] SQL:", sql.strip().replace("\n", " "))
+            print("🔎 [DB DEBUG] params:", params)
+
+            cursor.execute(sql, tuple(params))
+            row = cursor.fetchone()
+            if row and cursor.description:
+                cols = [d[0] for d in cursor.description]
+                result = dict(zip(cols, row))
+                print(f"✅ [DB] Found Baseline UID: {result.get('uid')}")
+                return result
+
+            # --- Fallback: nếu không tìm thấy bằng JSON extraction, thử search toàn cột locator (plain text) ---
+            print("ℹ️ [DB] No row found with JSON extraction. Trying fallback: plain LIKE on locator column...")
+            fallback_param = locator_value if exact else f"%{locator_value}%"
+            fallback_sql = "SELECT * FROM healenium.selector WHERE locator LIKE %s ORDER BY create_date DESC LIMIT 1"
+            print("🔎 [DB DEBUG] fallback SQL:", fallback_sql, "param:", fallback_param)
+            cursor.execute(fallback_sql, (fallback_param,))
+            row = cursor.fetchone()
+            if row and cursor.description:
+                cols = [d[0] for d in cursor.description]
+                result = dict(zip(cols, row))
+                print(f"✅ [DB] Fallback found Baseline UID: {result.get('uid')}")
+                return result
+
+            print("ℹ️ [DB] No selector found.")
             return None
+
         except Exception as e:
-            logger.error(f"[PersistenceService] Lỗi query healenium.selector: {e}")
-            if self.conn:
-                self.conn.rollback()
+            print(f"❌ [DB Error] {e}")
             return None
-        
-
-    def close(self):
-        if self.conn:
+        finally:
             try:
-                self.conn.close()
-                logger.info("[PersistenceService] Đã đóng kết nối CSDL (báo cáo).")
+                if cursor:
+                    cursor.close()
             except Exception:
                 pass
 
-    def __del__(self):
-        self.close()
+    # ----------------------------------------------------------------------
+    # 7) [FIXED] Learning Mechanism: Lưu selector khớp với Schema Healenium
+    # ----------------------------------------------------------------------
+    def save_selector_to_healenium(self, locator_by: str, locator_value: str, node_path_str: str, page_url: str):
+        """
+        Lưu selector vào bảng healenium.selector.
+        Cột: uid, url, class_name, method_name, locator, node_path, create_date, command, enable_healing
+        """
+        if not self.conn:
+            return
+
+        # 1. Chuẩn hóa format JSON
+        locator_json = json.dumps({"type": locator_by, "value": locator_value})
+        
+        # Node Path giả lập
+        node_path_data = json.dumps([{
+            "tag": "legacy_python", 
+            "id": "", 
+            "classes": [], 
+            "innerText": "",
+            "other": {"xpath": node_path_str} 
+        }])
+
+        # 2. Tạo UID duy nhất
+        hash_input = f"{locator_by}_{locator_value}_{page_url}" 
+        selector_uid = hashlib.md5(hash_input.encode('utf-8')).hexdigest()
+
+        # 3. [FIX] Câu lệnh SQL khớp với các cột bạn cung cấp
+        # Bỏ cột 'name', thêm 'class_name', 'method_name', 'command', 'enable_healing'
+        sql = """
+            INSERT INTO healenium.selector (
+                uid, url, class_name, method_name, 
+                locator, node_path, 
+                create_date, command, enable_healing
+            )
+            VALUES (
+                %s, %s, %s, %s, 
+                %s, %s, 
+                NOW(), %s, %s
+            )
+            ON CONFLICT (uid) DO UPDATE 
+            SET create_date = NOW(); -- Cập nhật thời gian nếu đã tồn tại
+        """
+        
+        # Giá trị giả lập cho các cột Java-specific (vì mình chạy Python)
+        dummy_class = class_name
+        dummy_method = "find_element"
+        dummy_command = "findElement"
+        enable_healing = True
+
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(sql, (
+                    selector_uid,
+                    page_url,
+                    dummy_class,
+                    dummy_method,
+                    locator_json,
+                    node_path_data,
+                    dummy_command,
+                    enable_healing
+                ))
+            self.conn.commit()
+            # logger.info(f"[Persistence] Đã lưu selector: {locator_value}")
+        except Exception as e:
+            logger.warning(f"[Persistence] Lỗi lưu selector baseline: {e}")
+            if self.conn:
+                self.conn.rollback()
+
+
+    def close(self):
+        """Đóng kết nối cơ sở dữ liệu."""
+        if self.conn:
+            try:
+                self.conn.close()
+                print("INFO:[PersistenceService] Đã đóng kết nối CSDL (báo cáo).")
+            except Exception as e:
+                print(f"ERROR:[PersistenceService] Lỗi khi đóng kết nối: {e}")

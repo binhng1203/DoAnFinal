@@ -1,99 +1,69 @@
-# run_test.py
-import logging
+import sys
 import os
+import logging
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+
+# Import từ project
 from self_healing_v1.manager import HealingManager
-from self_healing_v1.wrapper import HealingWrapper
 from test_cases.add_to_card import run_minimal_shop_happy_test
 
 def build_db_config_from_env(prefix: str):
     return {
-        # nếu chạy bên ngoài Docker → localhost
-        # nếu chạy trong Docker → đổi localhost thành system_db
         "host": os.getenv(f"{prefix}HOST", "localhost"),
         "port": int(os.getenv(f"{prefix}PORT", "5432")),
         "dbname": os.getenv(f"{prefix}NAME", "final"),
-        # User đọc/ghi knowledge base
         "user": os.getenv(f"{prefix}USER", "postgres"),
         "password": os.getenv(f"{prefix}PASSWORD", "postgres"),
     }
 
 def main():
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s:%(name)s:%(message)s"
-    )
-
-    # -------------------------
-    #  DB CONFIGS
-    # -------------------------
-    # Python fallback (knowledge base)
-    db_config_kb = build_db_config_from_env("KB_DB_")
-    # reporting / history → cũng nằm trong final.custom_analytics
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
+    
+    # 1. Config DB (Vẫn giữ để Manager ghi log report riêng nếu muốn)
     db_config_reporting = build_db_config_from_env("REPORT_DB_")
 
-    # -------------------------
-    #  MANAGER (Pipeline Python)
-    # -------------------------
     manager = HealingManager(
-        db_config_kb=db_config_kb,
         db_config_reporting=db_config_reporting,
-        # healenium backend
-        healenium_host="http://localhost:7878",
         visual_baseline_dir="visual_baseline",
     )
 
-    # fallback python
-    manager.enable_python_fallback = True
-    # -------------------------
-    #  WRAPPER (optional)
-    # -------------------------
-    # Vẫn khởi tạo nếu sau này bạn có test dùng wrapper.find_element()
-    wrapper = HealingWrapper(manager)
-
-    # -------------------------
-    #  SELENIUM REMOTE (8085)
-    # -------------------------
+    # 2. Setup Driver kết nối qua PROXY
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
+    # Có thể thêm capability nếu cần cấu hình Healenium
+    # chrome_options.set_capability("healenium:options", {"recovery-tries": 1})
 
+    print(">>> [INIT] Connecting to Healenium Proxy at http://localhost:8085 ...")
+    
+    # [THAY ĐỔI QUAN TRỌNG NHẤT Ở ĐÂY]
     driver = webdriver.Remote(
-        command_executor="http://localhost:8085/wd/hub",
-        options=chrome_options,
+        command_executor="http://localhost:8085",  # Địa chỉ Healenium Proxy
+        options=chrome_options
     )
 
     try:
-        # test_entrypoint sẽ nhận driver, healing_find_func, test_id, run_id, ...
-        # từ manager.run_test_wrapper
-        def test_entrypoint(**kwargs):
-            # Không truyền wrapper vào đây nữa,
-            # vì run_checkout_happy_test đang nhận driver + healing_find_func
-            return run_minimal_shop_happy_test(**kwargs)
+        def test_entrypoint(driver, manager):
+            return run_minimal_shop_happy_test(
+                driver=driver,
+                healing_find_func=manager.find_element,
+                test_id=manager._current_test_id,
+                run_id=manager._current_run_id
+            )
 
         manager.run_test_wrapper(
             test_function=test_entrypoint,
             driver=driver,
-            test_id="run_minimal_shop_happy_test",
-            wrapper=None,               # tham số này giờ không dùng nữa, nhưng giữ cho khỏi lỗi
-            build_version="build-01",
-            git_hash="sim-0001",
+            test_id="run_minimal_shop_happy_test_proxy", # Đổi tên chút để phân biệt
             app_version="1.0.0",
-            author="Xuyn",
-            fullscreen_page_name="checkout_country",  # tên logic, map tới baseline fullscreen
         )
-
     finally:
         driver.quit()
         manager.close()
 
-import sys
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        # Khi có lỗi (Test Fail), code sẽ nhảy vào đây thay vì in Traceback
-        print(f"\n❌ [EXECUTION FAILED] Test run finished with error: {e}")
-        
-        # Thoát với mã lỗi 1 (để CI/CD hoặc hệ thống khác biết là chạy thất bại)
+        print(f"\n❌ [EXECUTION FAILED]: {e}")
         sys.exit(1)
