@@ -1,0 +1,15 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+services/logs/
+
+# Data & Cache (Docker volumes)
+services/mongo_data/
+services/proactive_prevent_service/repo_cache_data/
+
+# Environment settings
+.env
+venv/

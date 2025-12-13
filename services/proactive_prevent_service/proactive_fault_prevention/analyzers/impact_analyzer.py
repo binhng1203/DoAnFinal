@@ -1,7 +1,4 @@
-# File: analyzers/impact_analyzer.py
-# Chức năng: F03 & F04 - Xác định locator bị ảnh hưởng và Dự đoán test case
-# Ngôn ngữ & Công nghệ: Python, TheFuzz
-
+# File: proactive_fault_prevention/analyzers/impact_analyzer.py
 from thefuzz import fuzz
 from collections import defaultdict
 from proactive_fault_prevention.config import FUZZY_SCORER_WEIGHTS, FUZZY_MATCH_THRESHOLD
@@ -9,27 +6,37 @@ from proactive_fault_prevention.config import FUZZY_SCORER_WEIGHTS, FUZZY_MATCH_
 def _group_changes_by_file(ui_changes):
     grouped = defaultdict(lambda: {'added': [], 'deleted': []})
     for change in ui_changes:
-        grouped[change['file_path']][change['change_type']].append(change)
+        # Kiểm tra an toàn để tránh lỗi dữ liệu rác
+        if not isinstance(change, dict): 
+            continue
+        
+        fpath = change.get('file_path')
+        ctype = change.get('change_type')
+        
+        if fpath and ctype in grouped[fpath]:
+            grouped[fpath][ctype].append(change)
     return grouped
 
 def _strategy_to_attr_name(strategy: str) -> str:
-    """
-    Chuẩn hóa strategy -> tên thuộc tính UI tương ứng.
-    Ví dụ: "By.ID" -> "id", "id" -> "id", "By.XPATH" -> "xpath".
-    Mặc định: trả về lower-case token cuối cùng.
-    """
     s = (strategy or "").strip()
     s = s.replace("By.", "").replace("by.", "")
     return s.lower()
 
 def _calculate_combined_score(old_value, new_value, attribute_name):
+    # (Giữ nguyên logic cũ)
     if attribute_name == 'class':
         weights = FUZZY_SCORER_WEIGHTS['token_set']
-    else:  # id, name, data-testid, xpath, ...
+    else:
         weights = FUZZY_SCORER_WEIGHTS['single_string']
-    ratio_score = fuzz.ratio(old_value, new_value)
-    partial_ratio_score = fuzz.partial_ratio(old_value, new_value)
-    token_set_score = fuzz.token_set_ratio(old_value, new_value)
+    
+    # Ép kiểu string để tránh lỗi nếu value là None/Int
+    old_str = str(old_value or "")
+    new_str = str(new_value or "")
+
+    ratio_score = fuzz.ratio(old_str, new_str)
+    partial_ratio_score = fuzz.partial_ratio(old_str, new_str)
+    token_set_score = fuzz.token_set_ratio(old_str, new_str)
+    
     weighted_score = (
         ratio_score * weights['ratio'] +
         partial_ratio_score * weights['partial_ratio'] +
@@ -41,7 +48,7 @@ def predict_impact(ui_changes, locator_inventory):
     """
     Trả về:
     - predicted_failed_tests: list[str]
-    - match_details: chi tiết match từng locator với thay đổi UI (đã khử trùng lặp)
+    - match_details: chi tiết match từng locator với thay đổi UI
     - impacted_locators: dạng gọn gàng cho báo cáo
     """
     predicted_failed_tests = set()
@@ -55,53 +62,72 @@ def predict_impact(ui_changes, locator_inventory):
             "impacted_locators": []
         }
 
-    # Gom thay đổi theo file + tạo list toàn cục để không lệ thuộc vào tên file
-    by_file = _group_changes_by_file(ui_changes)
+    # ========================================================
+    # [FIX] NORMALIZE INPUT: Xử lý trường hợp input là Dict
+    # ========================================================
+    normalized_changes = []
+    if isinstance(ui_changes, dict):
+        # Nếu là dict {added: [], deleted: []}, gom tất cả vào 1 list phẳng
+        for key, changes in ui_changes.items():
+            if isinstance(changes, list):
+                normalized_changes.extend(changes)
+    elif isinstance(ui_changes, list):
+        normalized_changes = ui_changes
+    else:
+        print(f"WARNING: Unknown format for ui_changes: {type(ui_changes)}")
+        return {"predicted_failed_tests": [], "match_details": [], "impacted_locators": []}
+
+    # Gom thay đổi theo file
+    by_file = _group_changes_by_file(normalized_changes)
+    
     all_deleted = []
     all_added = []
     for f, d in by_file.items():
         all_deleted.extend(d['deleted'])
         all_added.extend(d['added'])
 
-    # Dùng set để khử trùng lặp theo khóa đặc trưng
     seen = set()
 
+    # Duyệt qua kho locator (lấy từ DB steps hoặc scan file)
     for locator in locator_inventory:
+        # Locator từ DB steps sẽ có field 'strategy' (vd: 'id', 'xpath')
         loc_attr_name = _strategy_to_attr_name(locator.get('strategy', ''))
         loc_value = locator.get('value', '')
 
         if not loc_attr_name or not loc_value:
             continue
 
-        # 1) Tìm những thay đổi 'deleted' có attribute_value == locator.value
-        #    và attribute_name khớp với strategy (vd: id ↔ By.ID)
+        # 1) Tìm thay đổi 'deleted' khớp chính xác value & name
         deleted_candidates = [
             d for d in all_deleted
-            if d.get('attribute_value') == loc_value
+            if str(d.get('attribute_value')) == str(loc_value)
             and d.get('attribute_name', '').lower() == loc_attr_name
         ]
+        
+        # Fallback: Nếu không khớp chính xác, thử partial match (phòng trường hợp format thay đổi nhẹ)
         if not deleted_candidates:
-            # Nếu không thấy xóa đúng value, có thể locator bị đổi kiểu/format;
-            # Vẫn thử partial match nhẹ (an toàn): ưu tiên exact trước, fallback partial.
             deleted_candidates = [
                 d for d in all_deleted
                 if d.get('attribute_name', '').lower() == loc_attr_name
-                and fuzz.partial_ratio(loc_value, d.get('attribute_value', '')) >= 95
+                and fuzz.partial_ratio(str(loc_value), str(d.get('attribute_value', ''))) >= 95
             ]
+            
         if not deleted_candidates:
             continue
 
-        # 2) Với mỗi 'deleted', tìm 'added' tốt nhất có cùng attribute_name
-        #    Ưu tiên cùng file, nếu không có thì xét all_added.
+        # 2) Với mỗi 'deleted', tìm 'added' tốt nhất
         for deleted_attr in deleted_candidates:
+            # Ưu tiên tìm 'added' trong CÙNG FILE UI
             file_scope_added = [
                 a for a in by_file.get(deleted_attr['file_path'], {}).get('added', [])
                 if a.get('attribute_name', '').lower() == loc_attr_name
             ]
+            # Nếu không có, tìm trong toàn bộ 'added'
             candidates_added = file_scope_added if file_scope_added else [
                 a for a in all_added
                 if a.get('attribute_name', '').lower() == loc_attr_name
             ]
+            
             if not candidates_added:
                 continue
 
@@ -119,6 +145,7 @@ def predict_impact(ui_changes, locator_inventory):
             if not best['attribute'] or best['score'] < FUZZY_MATCH_THRESHOLD:
                 continue
 
+            # Tìm thấy Match! Lưu kết quả
             md = {
                 'locator': locator,
                 'deleted_attribute': deleted_attr,
@@ -128,8 +155,8 @@ def predict_impact(ui_changes, locator_inventory):
 
             # Khóa khử trùng lặp
             key = (
-                locator.get('file'),
-                locator.get('test_case'),
+                locator.get('file', 'DB'),
+                locator.get('test_case', 'Unknown'),
                 loc_attr_name,
                 deleted_attr.get('attribute_value'),
                 best['attribute'].get('attribute_value'),
@@ -141,8 +168,8 @@ def predict_impact(ui_changes, locator_inventory):
             match_details.append(md)
 
             impacted_locators.append({
-                "test_file": locator.get('file'),
-                "test_case": locator.get('test_case'),
+                "test_case_id": locator.get('test_case'), # ID hoặc tên step
+                "step_order": locator.get('step_order'),
                 "strategy": locator.get('strategy'),
                 "value_before": deleted_attr.get('attribute_value'),
                 "value_after": best['attribute'].get('attribute_value'),
@@ -152,8 +179,9 @@ def predict_impact(ui_changes, locator_inventory):
                 "score": best['score']
             })
 
+            # Nếu có tên test case (để chạy lại)
             if locator.get('test_case'):
-                predicted_failed_tests.add(f"{locator['file']}::{locator['test_case']}")
+                predicted_failed_tests.add(locator['test_case'])
 
     return {
         "predicted_failed_tests": list(predicted_failed_tests),
