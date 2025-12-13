@@ -1,5 +1,6 @@
 // src/services/testCaseService.js
 import apiClient from "../services/apiClient";
+import axios from "axios";
 
 const testCaseService = {
   // Lấy danh sách test case theo suite
@@ -37,6 +38,11 @@ const testCaseService = {
       { timeout: 600000 }   // 10 minutes
     );
   },
+  async runProactiveTestCase(payload) {
+      // POST http://localhost:8005/proactive
+      // Payload: { project_id, case_id, head_sha, base_sha, author }
+      return axios.post("http://localhost:8005/proactive", payload);
+    },
 
   // Tạo Test Step
   async createTestStep(caseId, payload) {

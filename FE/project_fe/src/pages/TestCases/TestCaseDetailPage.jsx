@@ -1,11 +1,13 @@
 // src/pages/TestCases/TestCaseDetailPage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
-import { Pencil, Trash, Play, MoreHorizontal, X , CheckCircle2, AlertTriangle} from "lucide-react";
+import { Pencil, Trash, Play, MoreHorizontal, X , CheckCircle2, ChevronDown, Zap} from "lucide-react";
 import { formatDate } from "../../utils/formatDate";
 import testCaseService from "../../services/testCaseService";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal";
+import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
+
 
 export default function TestCaseDetailPage() {
   const { projectId, suiteId, caseId } = useParams();
@@ -27,6 +29,10 @@ export default function TestCaseDetailPage() {
   // ====== STATE POPUP ADD STEP ======
   const [isAddStepOpen, setIsAddStepOpen] = useState(false);
   const [editingStep, setEditingStep] = useState(null);
+
+  const [isRunDropdownOpen, setIsRunDropdownOpen] = useState(false);
+
+  const [isProactiveOpen, setIsProactiveOpen] = useState(false);
 
   // Hàm xử lý cập nhật thông tin (Sau khi Modal bấm Save)
   const handleUpdateInfo = async (payload) => {
@@ -73,53 +79,33 @@ export default function TestCaseDetailPage() {
     }
   };
 
-  // ====== CREATE STEP ======
-  const handleCreateStep = async (stepPayload) => {
+  // Mở Modal
+  const handleRunProactive = () => {
+    setIsRunDropdownOpen(false); // Đóng dropdown menu trước
+    setIsProactiveOpen(true);    // Mở modal nhập SHA
+  };
+
+  // Hàm thực thi gọi API
+  const handleConfirmProactive = async ({ headSha, baseSha }) => {
     try {
-      if (!testCase) return;
+      const testCaseId = testCase?.case_id || testCase?.id || caseId;
+      setRunning(true); // Bật loading ở nút Header
 
-      const testCaseId = testCase.case_id || testCase.id || caseId;
+      const payload = {
+        project_id: projectId,
+        case_id: testCaseId,
+        head_sha: headSha,
+        base_sha: baseSha
+      };
 
-      if (!testCaseId) {
-        alert("Không xác định được test case id để tạo step");
-        return;
-      }
+      await testCaseService.runProactiveTestCase(payload);
+      alert("Run Proactive thành công!");
 
-      // Gọi qua proxy giống các API khác (tránh CORS)
-      const token = localStorage.getItem("access_token");
-      const res = await fetch(`/api/v1/cases/${testCaseId}/steps`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify(stepPayload),
-      });
-
-      const data = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const msg =
-          data?.error ||
-          data?.message ||
-          "Tạo test step thất bại. Vui lòng thử lại.";
-        alert(msg);
-        return;
-      }
-
-      // Thêm step mới vào state để bảng tự cập nhật
-      setTestCase((prev) => {
-        const oldSteps = Array.isArray(prev?.steps) ? prev.steps : [];
-        return {
-          ...prev,
-          steps: [...oldSteps, data],
-        };
-      });
-
-      setIsAddStepOpen(false);
     } catch (err) {
-      console.error("Create step error:", err);
-      alert("Tạo test step thất bại. Vui lòng thử lại.");
+      console.error("Run Proactive ERROR:", err);
+      alert("Run Proactive thất bại.");
+    } finally {
+      setRunning(false); // Tắt loading
     }
   };
 
@@ -324,14 +310,70 @@ export default function TestCaseDetailPage() {
           >
             Edit
           </button>
-          <button
-            className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-            onClick={handleRunTestCase}
-            disabled={running}
-          >
-            <Play className="h-3 w-3" />
-            {running ? "Running..." : "Run Test Case"}
-          </button>
+          <div className="relative">
+          {running ? (
+            // Trạng thái Loading
+            <button disabled className="inline-flex items-center gap-2 rounded-full bg-primary/70 px-4 py-2 text-xs font-medium text-white cursor-not-allowed">
+               <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+               Running...
+            </button>
+          ) : (
+            // Trạng thái Dropdown Trigger
+            <>
+              <button
+                onClick={() => setIsRunDropdownOpen(!isRunDropdownOpen)}
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm"
+              >
+                <Play className="h-3 w-3 fill-current" />
+                Run Test Case
+                <ChevronDown className={`h-3 w-3 transition-transform ${isRunDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {/* Menu Popup */}
+              {isRunDropdownOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-52 origin-top-right rounded-2xl border border-slate-100 bg-white p-1.5 shadow-xl ring-1 ring-black ring-opacity-5 animate-in fade-in zoom-in duration-150">
+                  
+                  {/* Option 1: Self-healing */}
+                  <button
+                    onClick={() => {
+                       handleRunTestCase(); // Gọi API cũ
+                       setIsRunDropdownOpen(false);
+                    }}
+                    className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+                      <Play className="h-4 w-4 fill-current" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span className="font-semibold text-slate-800">Self-healing</span>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Proactive */}
+                  <button
+                    onClick={handleRunProactive}
+                    className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                      <Zap className="h-4 w-4 fill-current" />
+                    </div>
+                    <div className="flex flex-col items-start">
+                      <span className="font-semibold text-slate-800">Proactive</span>
+                    </div>
+                  </button>
+                </div>
+              )}
+              
+              {/* Overlay đóng khi click ra ngoài */}
+              {isRunDropdownOpen && (
+                <div 
+                  className="fixed inset-0 z-10 cursor-default" 
+                  onClick={() => setIsRunDropdownOpen(false)}
+                />
+              )}
+            </>
+          )}
+       </div>
           <button className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -526,7 +568,7 @@ export default function TestCaseDetailPage() {
         stepNumber={steps.length + 1}
         stepData={editingStep}           // Truyền dữ liệu cần sửa
 />
-      {/* ✅ MODAL CONFIRM DELETE STEP (Mới thêm) */}
+      {/* MODAL CONFIRM DELETE STEP  */}
       <ConfirmModal
         isOpen={isDeleteStepOpen}
         onCancel={() => setIsDeleteStepOpen(false)}
@@ -542,15 +584,16 @@ export default function TestCaseDetailPage() {
       <CreateTestCaseModal
         isOpen={isEditInfoOpen}
         onClose={() => setIsEditInfoOpen(false)}
-        
-        // Truyền dữ liệu hiện tại để form tự điền
         testCaseData={testCase} 
-        
-        // Hàm xử lý khi bấm Save
         onUpdate={handleUpdateInfo}
-        
-        // SuiteId (nếu cần validate, nhưng edit thì ko quan trọng lắm)
         suiteId={suiteId}
+      />
+
+      {/* MODAL PROACTIVE RUN */}
+      <ProactiveRunModal
+        isOpen={isProactiveOpen}
+        onClose={() => setIsProactiveOpen(false)}
+        onRun={handleConfirmProactive}
       />
     </div>
   );
@@ -662,7 +705,7 @@ function AddStepModal({ isOpen, onClose, onSubmit, stepData, stepNumber = 1 }) {
             </button>
 
             <h2 className="mb-4 text-2xl font-semibold text-[#6425FE]">
-              {isEditMode ? `Edit Step #${stepData.step_order}` : `Add Step #${stepNumber}`}
+              {isEditMode ? `Edit Step` : `Add Step `}
             </h2>
 
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -701,9 +744,9 @@ function AddStepModal({ isOpen, onClose, onSubmit, stepData, stepNumber = 1 }) {
                     <option value="XPATH">XPath</option>
                     <option value="CSS">CSS Selector</option>
                     <option value="NAME">Name</option>
-                    <option value="CLASS_NAME">Class Name</option>
-                    <option value="TAG_NAME">Tag Name</option>
-                    <option value="LINK_TEXT">Link Text</option>
+                    <option value="CLASS NAME">Class Name</option>
+                    <option value="TAG NAME">Tag Name</option>
+                    <option value="LINK TEXT">Link Text</option>
                   </select>
                 </div>
                 <div>

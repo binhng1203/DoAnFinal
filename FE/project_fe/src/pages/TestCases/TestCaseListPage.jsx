@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { Search, Pencil, Trash, Play } from "lucide-react";
+import { Search, Pencil, Trash, Play, ChevronDown, Zap } from "lucide-react";
 import { formatDate } from "../../utils/formatDate";
 import testCaseService from "../../services/testCaseService";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
+import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
 
 export default function TestCaseListPage() {
   const { projectId, suiteId } = useParams();
@@ -28,6 +29,9 @@ export default function TestCaseListPage() {
   const [caseToDelete, setCaseToDelete] = useState(null);
 
   const [editingTestCase, setEditingTestCase] = useState(null);
+
+  const [isProactiveOpen, setIsProactiveOpen] = useState(false);
+  const [caseIdForProactive, setCaseIdForProactive] = useState(null);
 
   // Hàm mở modal để TẠO
   const openCreateModal = () => {
@@ -94,6 +98,44 @@ export default function TestCaseListPage() {
     }
   };
 
+  // Chỉ mở Modal, chưa gọi API ngay
+  const handleRunProactive = (testCaseId) => {
+    setCaseIdForProactive(testCaseId);
+    setIsProactiveOpen(true);
+  };
+
+  // Hàm thực thi khi ấn OK ở Modal
+  const handleConfirmProactive = async ({ headSha, baseSha }) => {
+    if (!caseIdForProactive) return;
+
+    try {
+      setRunningId(caseIdForProactive); // Bật loading spinner ở nút Run
+
+      // Chuẩn bị payload theo yêu cầu JSON
+      const payload = {
+        project_id: projectId,          // Lấy từ URL params
+        case_id: caseIdForProactive,    // Lấy từ state
+        head_sha: headSha,
+        base_sha: baseSha
+      };
+
+      console.log(">>> Sending Proactive Payload:", payload);
+
+      // Gọi API Port 8005
+      const res = await testCaseService.runProactiveTestCase(payload);
+      console.log("Run Proactive OK:", res);
+
+      alert("Run Proactive thành công!");
+
+    } catch (err) {
+      console.error("Run Proactive ERROR:", err);
+      alert("Run Proactive thất bại. Vui lòng kiểm tra lại server 8005.");
+    } finally {
+      setRunningId(null);       // Tắt loading
+      setCaseIdForProactive(null);
+    }
+  };
+
   // ============================================================
   // FETCH TEST CASES (dùng lại cho cả load & sau khi tạo)
   // ============================================================
@@ -128,7 +170,7 @@ export default function TestCaseListPage() {
     await fetchTestCases();
   };
 
-  // ✅ CÁC HÀM XỬ LÝ XOÁ (MỚI)
+  // CÁC HÀM XỬ LÝ XOÁ (MỚI)
   const openDeleteConfirm = (testCase) => {
     setCaseToDelete(testCase);
     setIsDeleteOpen(true);
@@ -393,21 +435,15 @@ export default function TestCaseListPage() {
                                 </button>
 
                                 {/* Run */}
-                                <button
-                                  className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-                                  onClick={() =>
-                                    handleRunTestCase(testCaseId)
-                                  }
-                                  disabled={runningId === testCaseId}
-                                >
-                                  <Play
-                                    className="h-3 w-3"
-                                    stroke="#fff"
+                                {/* Run Dropdown (Thay thế nút Run cũ) */}
+                                <div className="relative inline-block text-left">
+                                  <RunDropdown 
+                                    testCaseId={testCaseId}
+                                    isRunning={runningId === testCaseId} 
+                                    onRunSelfHealing={() => handleRunTestCase(testCaseId)} 
+                                    onRunProactive={() => handleRunProactive(testCaseId)}
                                   />
-                                  {runningId === testCaseId
-                                    ? "Running..."
-                                    : "Run"}
-                                </button>
+                                </div>
                               </div>
                             </td>
                           </tr>
@@ -485,7 +521,7 @@ export default function TestCaseListPage() {
         testCaseData={editingTestCase}
       />
 
-      {/* ✅ MODAL CONFIRM DELETE (Mới thêm) */}
+      {/* MODAL CONFIRM DELETE  */}
       <ConfirmModal
         isOpen={isDeleteOpen}
         onCancel={() => setIsDeleteOpen(false)}
@@ -501,6 +537,86 @@ export default function TestCaseListPage() {
         forbiddenTitle="Permission Denied"
         forbiddenMessage="You do not have permission to delete this test case."
       />
+
+      {/* MODAL PROACTIVE RUN  */}
+      <ProactiveRunModal
+        isOpen={isProactiveOpen}
+        onClose={() => setIsProactiveOpen(false)}
+        onRun={handleConfirmProactive}
+      />
     </>
+  );
+}
+
+function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  // Click ra ngoài để đóng menu
+  useEffect(() => {
+    const close = () => setIsOpen(false);
+    if (isOpen) window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [isOpen]);
+
+  // Trạng thái Loading
+  if (isRunning) {
+    return (
+      <button disabled className="inline-flex items-center gap-1 rounded-full bg-primary/70 px-4 py-1.5 text-xs font-medium text-white cursor-not-allowed">
+        <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+        Running...
+      </button>
+    );
+  }
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      {/* Nút Trigger */}
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm"
+      >
+        <Play className="h-3 w-3 fill-current" />
+        Run
+        <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {/* Menu Dropdown */}
+      {isOpen && (
+        <div className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in duration-100">
+          
+          {/* Option 1: Self-healing */}
+          <button
+            onClick={() => {
+              onRunSelfHealing();
+              setIsOpen(false);
+            }}
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+              <Play className="h-3.5 w-3.5 fill-current" />
+            </div>
+            <div className="flex flex-col items-start">
+               <span className="font-semibold text-slate-800">Self-healing</span>
+            </div>
+          </button>
+
+          {/* Option 2: Proactive */}
+          <button
+            onClick={() => {
+              onRunProactive();
+              setIsOpen(false);
+            }}
+            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-100 text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+              <Zap className="h-3.5 w-3.5 fill-current" />
+            </div>
+            <div className="flex flex-col items-start">
+               <span className="font-semibold text-slate-800">Proactive</span>
+            </div>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
