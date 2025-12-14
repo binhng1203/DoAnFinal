@@ -162,6 +162,25 @@ services:
     networks:
       - app-network
 
+  report-service:
+    build: ./report_service
+    container_name: report_service_app
+    env_file: ./report_service/.env
+    environment:
+      - DATABASE_URL=postgresql://app_user:app_password@system_db:5432/final
+      - FLASK_APP=src/main.py
+      - FLASK_DEBUG=1
+    depends_on:
+      system_db:
+        condition: service_healthy
+    ports:
+      - "8006:8000"
+    volumes:
+      - ./report_service:/app
+    command: gunicorn -w 2 -b 0.0.0.0:8000 "src.main:create_app()"
+    networks:
+      - app-network
+
   # ============================================================
   # 3. HEALENIUM CORE GROUP
   # ============================================================
