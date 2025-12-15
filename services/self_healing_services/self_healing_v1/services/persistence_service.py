@@ -557,7 +557,7 @@ class PersistenceService:
             INSERT INTO {VISUAL_VALIDATION_TABLE} (
                 test_id, run_id, scope, target_name,
                 page_url, status, ssim_score, extra_metrics,
-                baseline_url, current_url, diff_url
+                baseline_path, current_path, diff_path
             )
             VALUES (
                 %s, %s, %s, %s,

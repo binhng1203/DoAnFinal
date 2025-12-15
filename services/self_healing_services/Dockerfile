@@ -5,10 +5,11 @@ WORKDIR /app
 
 # Cài thư viện hệ thống cho OpenCV/Scikit-image
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+libxml2-dev, libxslt-dev
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy và cài đặt thư viện Python
 COPY requirements.txt .

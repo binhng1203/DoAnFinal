@@ -1,411 +1,395 @@
 import time
-import os
 import json
-import re
 import logging
-import traceback
-from typing import Optional, Dict, Any, Callable
+import re
+from typing import Optional, Dict, Any, Callable, List, Tuple
+import difflib
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException, WebDriverException
-from .services.persistence_service import PersistenceService
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    WebDriverException,
+)
+
+# Giả định các import này đã đúng với project structure của bạn
 from .context import HealingContext
+from .layers.suggestion_layer import SuggestionLayer
+from .layers.healing_layer import HealingLayer
+from .layers.decision_layer import DecisionLayer
+from .layers.validation_layer import ValidationLayer
+from .services.cloud_kb_client import CloudKnowledgeBaseClient
+from .services.persistence_service import PersistenceService
 
 logger = logging.getLogger(__name__)
 
 class HealingManager:
-    """
-    HealingManager V2 (Final Version)
-    - Tự động Learning selector vào DB.
-    - Tự động Healing khi lỗi.
-    - Tự động Visual Validation (Element & Fullscreen) bắt buộc.
-    """
 
-    def __init__(self, db_config_reporting: Dict[str, Any], visual_baseline_dir: str = None):
-        self.persistence = PersistenceService(db_config_reporting)
-        self.visual_baseline_dir = visual_baseline_dir
-        
+    def __init__(
+        self,
+        db_config_reporting: Optional[Dict[str, Any]] = None,
+        db_config_kb: Optional[Dict[str, Any]] = None,
+        healenium_host: str = "http://localhost:7878",
+        imitator_url: str = "http://localhost:8000",
+        visual_baseline_dir: str = "visual_baseline",
+    ):
+        logger.info("[HealingManager] Initializing...")
+
+        # 1. Xử lý Mutable Default Arguments
+        if db_config_reporting is None:
+            db_config_reporting = {
+                "host": "localhost", "port": 5432, "database": "final",
+                "user": "postgres", "password": "postgres",
+            }
+        if db_config_kb is None:
+            db_config_kb = {
+                "host": "localhost", "port": 5432, "database": "final",
+                "user": "postgres", "password": "postgres",
+            }
+
         self.driver: Optional[WebDriver] = None
         self.context = HealingContext()
-        self._current_run_id: Optional[int] = None
-        self._current_test_id: Optional[str] = None
-        self._start_time = 0
 
-    def close(self):
-        """Đóng kết nối DB khi chạy xong toàn bộ"""
-        if self.persistence:
-            self.persistence.close()
+        # 2. Setup Knowledge Base
+        self.kb_client: Optional[CloudKnowledgeBaseClient] = None
+        self.suggestion_layer: Optional[SuggestionLayer] = None
+        try:
+            self.kb_client = CloudKnowledgeBaseClient(db_config_kb)
+            self.suggestion_layer = SuggestionLayer(self.kb_client)
+        except Exception:
+            logger.warning("[HealingManager] KB init failed or disabled (running in Offline Mode)")
 
-    # =========================================================================
-    # 1. WRAPPER & SESSION MANAGEMENT
-    # =========================================================================
-    def run_test_wrapper(self, test_function: Callable, driver: WebDriver, test_id: str, **kwargs):
-        self.driver = driver
-        self._current_test_id = test_id
-        app_version = kwargs.get("app_version", "1.0.0")
+        # 3. Setup Persistence Service
+        self.persistence_service: Optional[PersistenceService] = None
+        try:
+            self.persistence_service = PersistenceService(db_config_reporting)
+        except Exception:
+            logger.error("[HealingManager] Persistence init failed", exc_info=True)
 
-        self._start_test_session(test_id, app_version)
-        status = "Pass"
+        # 4. Setup Core Layers
+        self.healing_layer = HealingLayer() 
+        if hasattr(self.healing_layer, "healenium_host"):
+            self.healing_layer.healenium_host = healenium_host
         
-        try:
-            logger.info(f"[Manager] >>> Start Test: {test_id}")
-            
-            # [BẮT BUỘC] Validate màn hình lúc bắt đầu test
-            self.validate_visual(target_name="start_of_test", scope="FULLSCREEN")
-            
-            # Chạy test function
-            try:
-                test_function(driver=driver, manager=self)
-            except TypeError:
-                test_function(driver=driver)
+        self.decision_layer = DecisionLayer(self.persistence_service)
+        self.validation_layer = ValidationLayer(visual_baseline_dir)
 
-        except Exception as e:
-            status = "Fail"
-            logger.error(f"[Manager] Test Failed: {e}")
-            
-            # [BẮT BUỘC] Validate màn hình lỗi (Failure State)
-            self.validate_visual(target_name="failure_state", scope="FULLSCREEN")
-            
-            raise e
+        logger.info("[HealingManager] Ready")
+
+    def get_healing_find_function(self, driver: WebDriver) -> Callable:
+        def wrapped_find(by: str, value: str, element_name: Optional[str] = None, **kwargs):
+            if self.driver != driver:
+                self.driver = driver
+            # SỬA: Truyền tiếp kwargs xuống find_element
+            return self.find_element(by, value, element_name, **kwargs)
+        return wrapped_find
+
+    def _learn_selector(self, element: WebElement, by: str, value: str):
+        pass
+
+    def run_test_wrapper(
+        self,
+        test_function: Callable,
+        driver: WebDriver,
+        test_id: str,
+        fullscreen_page_name: Optional[str] = None,
+        **kwargs,
+    ):
+        self.driver = driver
+        self.healing_layer.driver = driver
+        
+        final_status = "FAIL"
+        run_id = None
+        start_ts = time.perf_counter()
+
+        if self.persistence_service:
+            try:
+                run_id = self.persistence_service.save_raw_run_and_get_id(
+                    test_id, app_version=kwargs.get("app_version")
+                )
+                self.context.test_context = {"test_id": test_id, "run_id": run_id}
+            except Exception as e:
+                logger.error(f"Failed to create run entry: {e}")
+
+        healing_find_func = self.get_healing_find_function(driver)
+
+        try:
+            test_function(
+                driver=driver,
+                healing_find_func=healing_find_func,
+                test_id=test_id,
+                run_id=run_id,
+                **kwargs,
+            )
+            final_status = "PASS"
+
+            # [POINT 1] Gọi hàm validate fullscreen đã được cập nhật logic
+            if fullscreen_page_name:
+                self.validate_fullscreen(
+                    driver,
+                    fullscreen_page_name,
+                    {"test_id": test_id, "run_id": run_id, "page_url": driver.current_url},
+                )
+
+        except Exception:
+            logger.error(f"[HealingManager] Test '{test_id}' FAILED", exc_info=True)
+            raise
+
         finally:
-            self._end_test_session(status)
+            duration_ms = int((time.perf_counter() - start_ts) * 1000)
+            if self.persistence_service and run_id:
+                try:
+                    self.persistence_service.update_run_history_final_status(
+                        run_id, final_status, duration_ms,
+                    )
+                except Exception:
+                    logger.error("Failed to update run history", exc_info=True)
 
-    def _start_test_session(self, test_id: str, app_version: str):
-        self._start_time = time.time() * 1000
-        self.context = HealingContext()
-        self.context.test_context = {
-            "test_id": test_id, "app_version": app_version,
-            "page_url": self.driver.current_url if self.driver else "unknown"
-        }
-        # Tận dụng: save_raw_run_and_get_id
-        self._current_run_id = self.persistence.save_raw_run_and_get_id(test_id, app_version)
-        if self._current_run_id:
-            self.context.test_context["run_id"] = self._current_run_id
-
-    def _end_test_session(self, final_status: str):
-        if not self._current_run_id: return
-        duration = int(time.time() * 1000 - self._start_time)
-        # Tận dụng: update_run_history_final_status
-        self.persistence.update_run_history_final_status(self._current_run_id, final_status, duration)
-        logger.info(f"[Manager] >>> End Test. Status: {final_status}")
-
-    # =========================================================================
-    # 2. CORE: FIND ELEMENT (Learning + Healing + Auto Validation)
-    # ========================================================================
-
-    def find_element(self, by: str, value: str, element_name: str = None, **kwargs) -> WebElement:
-        """
-        Hàm cốt lõi thay thế driver.find_element.
-        Luôn thực hiện: Find -> Learn -> (Heal if fail) -> Validate Visual -> Return.
-        """
+    def find_element(
+        self,
+        by: str,
+        value: str,
+        element_name: Optional[str] = None,
+        timeout: int = 10,
+        **kwargs,  # SỬA: Thêm **kwargs để hứng test_context
+    ) -> WebElement:
         if not self.driver:
-            raise Exception("Driver not initialized.")
-        if element_name:
-            self.context.element_name = element_name
+            raise RuntimeError("Driver not initialized")
 
-        element = None
-        original_exception = None
+        # SỬA: Cập nhật Step Context (URL, Step Order, Action) vào HealingContext
+        if "test_context" in kwargs:
+            # Giả định HealingContext có phương thức update hoặc gán trực tiếp
+            # Nếu class HealingContext của bạn dùng dict, hãy làm thế này:
+            if hasattr(self.context, "test_context") and isinstance(self.context.test_context, dict):
+                self.context.test_context.update(kwargs["test_context"])
+        
+        self.context.reset_element_context(element_name)
 
         try:
-            # Phase 1: Normal Find (dùng WebDriver API)
-            element = self.driver.find_element(by, value)
-            # Phase 2: Learning (Lưu selector vào DB)
-            try:
-                self._learn_selector(element, by, value)
-            except Exception as e:
-                logger.warning(f"[Learning] save selector failed: {e}")
+            element = WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((by, value))
+            )
+            self.context.raw_result = "PASS"
+            self._learn_selector(element, by, value)
+            return element
 
-        except Exception as e:
-            # Lưu exception gốc để re-raise nếu healing thất bại
-            original_exception = e
-            print(f"🔍 [DEBUG Manager] Đang tìm baseline cho locator: '{value}'")
-            # Gọi healing flow
-            try:
-                element = self._perform_healing(by, value)
-            except NoSuchElementException as ne:
-                # healing thất bại -> log rồi re-raise gốc (hoặc raise NoSuchElementException với message rõ)
-                logger.error(f"[Manager] Healing failed for {by}={value}: {ne}")
-                # [Bắt buộc] Validate full screen failure state
-                try:
-                    self.validate_visual(target_name="failure_state", scope="FULLSCREEN")
-                except Exception:
-                    pass
-                # raise rõ ràng cho caller
-                raise NoSuchElementException(f"Healing Failed: Không tìm thấy {element_name or value}") from original_exception
-            except Exception as he:
-                logger.exception("[Manager] Unexpected error during healing: %s", he)
-                raise
-
-        # [BẮT BUỘC] Auto Visual Validation cho Element nếu có
-        if element:
-            target = element_name if element_name else f"elem_{int(time.time())}"
-            logger.info(f"[Manager] 📸 Auto-validating: {target}")
-            try:
-                self.validate_visual(target_name=target, element=element)
-            except Exception as e:
-                logger.warning(f"[Visual] validate failed: {e}")
-
-        return element
-
+        except (TimeoutException, NoSuchElementException):
+            logger.warning(f"[HealingManager] Native failed → Triggering Healing ({by}={value})")
+            self.context.raw_result = "FAIL"
+            return self._perform_healing(by, value)
 
     def _perform_healing(self, by: str, value: str) -> WebElement:
-        """
-        Improved healing:
-        - Extract tag and text from baseline (avoid hardcoded h3)
-        - Generate sensible candidates for same tag (button -> button candidates)
-        - Try attribute-based selectors and common text variants (Add to Bag/Cart)
-        - Retry with short waits to allow modal/render
-        - Try inside iframes
-        """
-        self.context.broken_locator = (by, value)
-        self.context.page_url = self.driver.current_url
-        start_t = time.time()
+        context = self.context
+        context.start_timer()
+        context.driver = self.driver
+        context.broken_locator = (by, value)
+        
+        def get_lcs_score(s1, s2):
+            if not s1 or not s2: return 0.0
+            return difflib.SequenceMatcher(None, str(s1), str(s2)).ratio()
 
-        baseline_data = self.persistence.get_selector_from_healenium_db(value)
-        if baseline_data:
-            logger.info(f"[Healing] Found baseline UID: {baseline_data.get('uid')}")
-        else:
-            logger.warning("[Healing] No baseline found in DB.")
+        def parse_baseline_info(locator_str):
+            info = {"tag": "*", "text": "", "id": "", "class": ""}
+            if not locator_str: return info
+            tag_match = re.search(r"//([a-zA-Z0-9]+)", locator_str)
+            if tag_match: info["tag"] = tag_match.group(1)
+            text_match = re.search(r"['\"]([^'\"]+)['\"]", locator_str)
+            if text_match: info["text"] = text_match.group(1)
+            id_match = re.search(r"@id=['\"]([^'\"]+)['\"]", locator_str)
+            if id_match: info["id"] = id_match.group(1)
+            return info
 
-        # --- extract locator string (value) from baseline_data robustly ---
-        def extract_value_from_baseline(bdata):
-            if not bdata:
-                return None
-            # bdata may have 'locator' column containing JSON string, or direct 'value'
-            loc = None
-            if isinstance(bdata, dict):
-                # try common keys
-                for k in ("value", "locator_value", "locator"):
-                    if k in bdata and bdata[k]:
-                        loc = bdata[k]
-                        break
-                # sometimes persistence returns 'locator' as JSON string
-                if isinstance(loc, str) and loc.strip().startswith("{"):
-                    try:
-                        parsed = json.loads(loc)
-                        loc = parsed.get("value") or parsed.get("locator") or loc
-                    except Exception:
-                        pass
-            else:
-                loc = str(bdata)
-            return loc
+        try:
+            # 1. Baseline from DB
+            baseline_data = None
+            if self.persistence_service:
+                try: baseline_data = self.persistence_service.get_selector_from_healenium_db(value)
+                except: pass
+            
+            def extract_loc(bdata):
+                if not bdata: return None
+                raw = bdata.get("locator") if isinstance(bdata, dict) else str(bdata)
+                clean = str(raw).strip() if raw else ""
+                if clean.startswith("{"):
+                    try: return json.loads(clean).get("value")
+                    except: pass
+                return clean
+                
+            baseline_value = extract_loc(baseline_data) or value
+            logger.info(f"[Healing] 🎯 Baseline Locator from DB: {baseline_value}")
+            baseline_info = parse_baseline_info(baseline_value)
 
-        baseline_value = extract_value_from_baseline(baseline_data)  # e.g. //button[normalize-space()="Add to Bag"]
-
-        # --- helper to extract tag and inner text from xpath-ish baseline ---
-        def parse_tag_and_text(xpath):
-            tag = None
-            text = None
-            if not xpath:
-                return tag, text
-            # extract tag at beginning: //tag or .//tag
-            mtag = re.match(r'^(?:\.\s*)?//?([a-zA-Z0-9_\-]+)', xpath.strip())
-            if mtag:
-                tag = mtag.group(1)
-            # extract quoted text inside = "..." or = '...'
-            mtxt = re.search(r'=\s*"(.*?)"|=\s*\'(.*?)\'', xpath)
-            if mtxt:
-                # pick first non-empty capture
-                text = mtxt.group(1) if mtxt.group(1) else mtxt.group(2)
-            return tag, text
-
-        tag, text = parse_tag_and_text(baseline_value)
-
-        # If no text extracted from baseline, fallback to using entire baseline_value as a candidate
-        candidates = []
-        if baseline_value:
-            candidates.append(baseline_value)
-
-        # Generate candidates based on extracted tag/text
-        if text:
-            # common variants to try (bag vs cart vs basket)
-            common_variants = list({text,
-                                    text.replace("Bag", "Cart"),
-                                    text.replace("Bag", "Basket"),
-                                    text.replace("Cart", "Bag"),
-                                    text.replace("Cart", "Basket")})
-
-            # tag-aware xpaths (use detected tag or default to * if missing)
-            t = tag or '*'
-            for v in common_variants:
-                # exact normalize-space
-                candidates.append(f'//{t}[normalize-space()="{v}"]')
-                # contains normalize-space
-                candidates.append(f'//{t}[contains(normalize-space(.), "{v}")]')
-                # contains plain text
-                candidates.append(f'//{t}[contains(.,"{v}")]')
-                # attribute-based checks
-                candidates.append(f'//{t}[@aria-label="{v}"]')
-                candidates.append(f'//{t}[@title="{v}"]')
-                candidates.append(f'//{t}[@data-testid="{v}"]')
-                candidates.append(f'//{t}[@data-test="{v}"]')
-                # role/button combo
-                candidates.append(f'//*[@role="button" and contains(normalize-space(.), "{v}")]')
-
-            # translate based case-insensitive
-            low = text.lower()
-            candidates.append(f'//*[contains(translate(normalize-space(.),"ABCDEFGHIJKLMNOPQRSTUVWXYZ","abcdefghijklmnopqrstuvwxyz"), "{low}")]')
-
-        # Also try attribute-only candidates (in case text is not reliable)
-        if tag:
-            candidates.append(f'//{tag}')  # any such element - last resort
-
-        # Add original provided locator as last resort
-        if value and value not in candidates:
-            candidates.append(value)
-
-        # Clean up candidates (dedupe preserving order)
-        seen = set()
-        final_candidates = []
-        for c in candidates:
-            if not c: continue
-            if c in seen: continue
-            seen.add(c)
-            final_candidates.append(c)
-
-        logger.info(f"[Healing] Candidates to try: {final_candidates}")
-
-        # small retry loop to allow modal or lazy rendering
-        def try_candidates_in_context(context_desc="main"):
+            # 2. Fast Candidates
+            candidates = [baseline_value]
+            final_candidates = list(dict.fromkeys(candidates))
+            healed_element = None
+            
             for cand in final_candidates:
                 try:
-                    elems = self.driver.find_elements(By.XPATH, cand)
-                    cnt = len(elems)
-                    logger.debug(f"[Healing] try {cand} in {context_desc} -> {cnt}")
-                    if elems:
-                        return elems[0], cand
-                except WebDriverException as e:
-                    logger.debug(f"[Healing] find_elements error for {cand}: {e}")
-            return None, None
-
-        # retry attempts (short sleeps)
-        max_attempts = 3
-        attempt = 0
-        found_elem = None
-        found_cand = None
-        while attempt < max_attempts and not found_elem:
-            attempt += 1
-            if attempt > 1:
-                logger.debug(f"[Healing] retry attempt {attempt} after short wait")
-                time.sleep(0.5)
-            # try main document
-            elem, cand = try_candidates_in_context("main")
-            if elem:
-                found_elem, found_cand = elem, cand
-                break
-            # try iframes
-            try:
-                iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
-            except Exception:
-                iframes = []
-            logger.info(f"[Healing] Found {len(iframes)} iframes to try (attempt {attempt}).")
-            for idx, iframe in enumerate(iframes):
-                try:
-                    self.driver.switch_to.frame(iframe)
-                    elem, cand = try_candidates_in_context(f"iframe[{idx}]")
-                    if elem:
-                        found_elem, found_cand = elem, cand
-                        # ensure switch back to default content before return
-                        self.driver.switch_to.default_content()
+                    strategy = By.XPATH if (cand.startswith("/") or cand.startswith("(")) else By.CSS_SELECTOR
+                    elm = WebDriverWait(self.driver, 2).until(EC.presence_of_element_located((strategy, cand)))
+                    if elm.is_displayed():
+                        healed_element = elm
+                        context.chosen_locator = (strategy, cand)
+                        context.source_of_chosen = "DB_BASELINE"
+                        context.raw_score = 1.0
                         break
-                except Exception as fe:
-                    logger.debug(f"[Healing] switch to iframe {idx} failed: {fe}")
-                finally:
+                except: continue
+
+            # 3. LCS Analysis
+            if not healed_element:
+                logger.info("[Healing] ⚠️ Fast heal failed. Starting LCS DOM Analysis...")
+                search_tag = baseline_info["tag"]
+                if search_tag == "*" or not search_tag: 
+                    dom_elements = self.driver.find_elements(By.XPATH, "//button | //a | //input | //div[@role='button']")
+                else:
+                    dom_elements = self.driver.find_elements(By.TAG_NAME, search_tag)
+                
+                best_match = None
+                highest_score = 0.0
+                
+                for elm in dom_elements:
                     try:
-                        self.driver.switch_to.default_content()
-                    except Exception:
-                        pass
-                if found_elem:
-                    break
+                        if not elm.is_displayed(): continue
+                        curr_text = elm.text or elm.get_attribute("innerText") or elm.get_attribute("value") or ""
+                        curr_id = elm.get_attribute("id") or ""
+                        
+                        score_text = get_lcs_score(baseline_info["text"], curr_text)
+                        score_id = get_lcs_score(baseline_info["id"], curr_id)
+                        
+                        final_score = (score_text * 0.7) + (score_id * 0.3) if baseline_info["text"] else score_id
+                        
+                        if final_score > highest_score:
+                            highest_score = final_score
+                            best_match = elm
+                    except: continue
 
-        duration = int((time.time() - start_t) * 1000)
-        self.context.healing_duration_ms = duration
+                if best_match and highest_score > 0.5:
+                    healed_element = best_match
+                    self.driver.execute_script("arguments[0].style.border='3px solid red'", healed_element)
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", healed_element)
+                    
+                    try: gen_xpath = f"//{best_match.tag_name}[contains(text(), '{best_match.text}')]"
+                    except: gen_xpath = "DOM_LCS_MATCH"
+                        
+                    context.chosen_locator = (By.XPATH, gen_xpath)
+                    context.source_of_chosen = "LCS_ALGORITHM"
+                    context.raw_score = highest_score
+                    logger.info(f"[Healing] 🏆 LCS Winner: Score {highest_score:.2f} -> {gen_xpath}")
+                else:
+                    raise NoSuchElementException(f"LCS failed. Best score was {highest_score:.2f}")
 
-        if found_elem:
-            healed_locator = ("xpath", found_cand)
-            # Log success (use element info minimally)
-            self.persistence.log_healing_success(
-                context=self.context,
-                engine="PYTHON",
-                original_locator=(by, value),
-                healed_locator=healed_locator,
-                best_candidate={"locator": healed_locator, "source": "IMPROVED_ALGO", "element": "<webelement-placeholder>"}
-            )
-            logger.info(f"[Healing] Success with candidate: {found_cand}")
-            return found_elem
+            # 4. VISUAL VALIDATION
+            if self.validation_layer and healed_element:
+                try:
+                    visual_status = self.validation_layer.validate_element_visual(healed_element, context.element_name)
+                    context.visual_validation_status = visual_status
+                except Exception:
+                    logger.error("[Healing] Visual validation error", exc_info=True)
 
-        # nothing found -> log failure and raise
-        self.persistence.log_healing_failure(
-            context=self.context,
-            engine="PYTHON",
-            reason="No candidate found",
-        )
-        logger.warning(f"[Healing] No candidate found after trying {len(final_candidates)} candidates.")
-        raise NoSuchElementException(f"Cannot heal element {by}={value}")
-    def _learn_selector(self, element: WebElement, by: str, value: str):
-        """Helper: Lấy Node Path từ browser và lưu vào DB"""
-        try:
-            # Script JS lấy XPath-like structure
-            script = "function getPathTo(e){if(e.id!=='')return'id(\"'+e.id+'\")';if(e===document.body)return e.tagName;var ix=0;var s=e.parentNode.childNodes;for(var i=0;i<s.length;i++){var sib=s[i];if(sib===e)return getPathTo(e.parentNode)+'/'+e.tagName+'['+(ix+1)+']';if(sib.nodeType===1&&sib.tagName===e.tagName)ix++;}return null;};return getPathTo(arguments[0]);"
-            node_path_str = self.driver.execute_script(script, element)
-            
-            # Tận dụng: save_selector_to_healenium
-            self.persistence.save_selector_to_healenium(
-                locator_by=by,
-                locator_value=value,
-                node_path_str=str(node_path_str),
-                page_url=self.driver.current_url,
-                class_name=self._current_test_id or "PythonClient"
-            )
-        except Exception as e:
-            # Learning fail không nên chặn test, chỉ log warning
-            logger.warning(f"[Learning] Failed to save selector: {e}")
+            # 5. REPORTING
+            if self.persistence_service:
+                self.persistence_service.log_healing_success(
+                    context=context, engine="PYTHON", 
+                    original_locator=(by, value), healed_locator=context.chosen_locator,
+                    best_candidate={"locator": str(context.chosen_locator), "source": context.source_of_chosen, "score": context.raw_score}
+                )
+                
+                # [POINT 2] Cập nhật phần log Visual Element để có diff_path và extra_metrics
+                if context.visual_validation_status != "N/A":
+                    last_vis = self.validation_layer.get_last_element_result() or {}
+                    self.persistence_service.log_visual_validation_event(
+                        test_id=(context.test_context or {}).get("test_id"),
+                        run_id=(context.test_context or {}).get("run_id"),
+                        scope="ELEMENT", 
+                        target_name=context.element_name,
+                        page_url=context.page_url, 
+                        status=context.visual_validation_status,
+                        ssim_score=last_vis.get("ssim_score"),
+                        
+                        # [SỬA] Thêm path và metrics rỗng
+                        baseline_path=last_vis.get("baseline_path"),
+                        current_path=last_vis.get("current_path"),
+                        diff_path=last_vis.get("diff_path"), 
+                        extra_metrics="{}" 
+                    )
 
-    # =========================================================================
-    # 3. VISUAL VALIDATION (Scroll & Capture & Log DB)
-    # =========================================================================
-    def validate_visual(self, target_name: str, element: WebElement = None, scope: str = "ELEMENT"):
-        """
-        Chụp ảnh (Element/Fullscreen) -> Lưu File -> Ghi DB
-        """
-        if not self._current_run_id:
-            logger.error("[Visual] Cannot log: Run ID is missing")
-            return False
+            if self.suggestion_layer:
+                try:
+                    self.suggestion_layer.report_successful_heal(
+                        old_locator=context.broken_locator, new_locator=context.chosen_locator,
+                        source="LCS", score=context.raw_score, page_url=context.page_url
+                    )
+                except: pass
 
-        # Tự động xác định scope
-        if element: scope = "ELEMENT"
-        elif scope is None: scope = "FULLSCREEN"
-
-        # Tạo thư mục
-        save_dir = "screenshots"
-        if not os.path.exists(save_dir): os.makedirs(save_dir)
-
-        filename = f"{target_name}_{self._current_run_id}_{int(time.time())}.png"
-        current_path = os.path.join(save_dir, filename)
-        
-        try:
-            if element:
-                # [QUAN TRỌNG] Scroll để chụp được ảnh
-                self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-                time.sleep(0.5) 
-                element.screenshot(current_path)
-            else:
-                self.driver.save_screenshot(current_path)
-            
-            # Tận dụng: log_visual_validation_event
-            self.persistence.log_visual_validation_event(
-                test_id=self._current_test_id,
-                run_id=self._current_run_id,
-                scope=scope,
-                target_name=target_name,
-                page_url=self.driver.current_url,
-                status="PASS", ssim_score=1.0, current_path=current_path
-            )
-            return True
+            context.final_status = "SUCCESS"
+            return healed_element
 
         except Exception as e:
-            logger.error(f"[Visual] Error capturing/logging: {e}")
-            # Visual lỗi không nên làm fail test func, return False
-            return False
+            context.final_status = "FAILURE"
+            logger.error(f"[Healing] FAILED: {e}")
+            raise NoSuchElementException(f"Self-Healing failed: {e}")
+
+        finally:
+            context.end_timer()
+            if self.persistence_service and context.final_status != "SUCCESS":
+                try: self.persistence_service.save_healing_event(context)
+                except: pass
+
+    # ==========================================================
+    # HÀM validate_fullscreen ĐÃ ĐƯỢC CẬP NHẬT HOÀN CHỈNH
+    # ==========================================================
+    def validate_fullscreen(
+        self,
+        driver: WebDriver,
+        page_name: str,
+        test_context: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        if not self.validation_layer:
+            return None
+
+        # 1. Gọi hàm validate từ ValidationLayer
+        status = self.validation_layer.validate_fullscreen(driver, page_name)
+
+        # 2. Lấy dữ liệu chi tiết
+        full_result = self.validation_layer.get_last_fullscreen_result() or {}
+        metrics = full_result.get("metrics", {})
+
+        # 3. Chuẩn bị dữ liệu JSON metrics
+        extra_data = {
+            "good_matches": metrics.get("good_matches", 0),
+            "edge_diff_ratio": metrics.get("edge_diff", 0.0),
+            "total_matches": metrics.get("total_matches", 0)
+        }
+
+        # 4. Ghi xuống DB với đầy đủ tham số
+        if self.persistence_service:
+            # Xác định URL
+            current_url = test_context.get("page_url") if test_context else driver.current_url
+            
+            self.persistence_service.log_visual_validation_event(
+                test_id=test_context.get("test_id") if test_context else None,
+                run_id=test_context.get("run_id") if test_context else None,
+                scope="FULLSCREEN",
+                target_name=page_name,
+                page_url=current_url,
+                
+                status=status,
+                ssim_score=0.0, # Fullscreen dùng edge diff
+                
+                # [QUAN TRỌNG] Chuyển metrics thành JSON string
+                extra_metrics=json.dumps(extra_data),
+                
+                # [QUAN TRỌNG] Truyền đường dẫn file
+                baseline_path=full_result.get("baseline_path"),
+                current_path=full_result.get("current_path"),
+                diff_path=full_result.get("diff_path")
+            )
+        return status
+
+    def close(self):
+        if self.persistence_service:
+            self.persistence_service.close()

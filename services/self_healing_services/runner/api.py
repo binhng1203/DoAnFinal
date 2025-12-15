@@ -7,24 +7,33 @@ import sys
 import traceback
 
 # =========================================
-# FIX IMPORT PATH
+# 1. FIX IMPORT PATH (CẤU HÌNH ĐƯỜNG DẪN)
 # =========================================
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))       
-SERVICE_ROOT = os.path.dirname(CURRENT_DIR)                    
-PROJECT_ROOT = os.path.dirname(SERVICE_ROOT)                   
+# Lấy đường dẫn thư mục hiện tại (runner)
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Lấy đường dẫn thư mục cha (self-healing-services) - Gốc Project
+project_root = os.path.dirname(current_dir)
 
-for p in [PROJECT_ROOT, SERVICE_ROOT]:
-    if p not in sys.path:
-        sys.path.insert(0, p)
+# Thêm vào sys.path để Python tìm thấy 'self_healing_v1' và 'runner'
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+print(f"DEBUG PATH: Added {project_root} to sys.path")
 
 # =========================================
-# IMPORT INTERNAL MODULES
+# 2. IMPORT MODULES (KHÔNG DÙNG TRY-EXCEPT)
 # =========================================
+# Import từ root project
+from self_healing_v1.manager import HealingManager
+
+# Import từ cùng thư mục runner
+# Thử import theo kiểu module (cho Docker/Uvicorn) hoặc kiểu script
 try:
-    from self_healing_v1.manager import HealingManager
-    from generic_executor import run_steps_test
+    from runner.generic_executor import run_steps_test
 except ImportError:
-    pass # Bỏ qua lỗi import lúc dev, docker sẽ chạy ok
+    from generic_executor import run_steps_test
 
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -33,9 +42,7 @@ from selenium.webdriver.chrome.options import Options
 app = FastAPI()
 logger = logging.getLogger(__name__)
 
-# ======== CONFIG TỪ DOCKER ENV (QUAN TRỌNG) ============
-# Mặc định fallback là localhost để bạn chạy test tay vẫn được, 
-# nhưng Docker sẽ ghi đè bằng biến môi trường
+# ======== CONFIG TỪ DOCKER ENV ============
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_NAME = "final"
 DB_USER = os.environ.get("DB_USER", "app_user")         
@@ -45,11 +52,7 @@ HEALENIUM_HOST = os.environ.get("HEALENIUM_HOST", "http://localhost:7878")
 SELENIUM_HOST = os.environ.get("SELENIUM_HOST", "http://localhost:8085/wd/hub")
 
 DB_CONFIG = {
-    "host": DB_HOST,
-    "port": 5432,
-    "dbname": DB_NAME,
-    "user": DB_USER,
-    "password": DB_PASSWORD,
+    "host": DB_HOST, "port": 5432, "dbname": DB_NAME, "user": DB_USER, "password": DB_PASSWORD,
 }
 
 # ======== REQUEST MODEL ========
@@ -67,6 +70,11 @@ def run_testcase(req: RunRequest):
     driver = None
     manager = None
     
+    # Khai báo biến status mặc định để tránh lỗi UnboundLocalError
+    status = "failed" 
+    case = {}
+    steps = []
+
     try:
         # 1) Kết nối DB
         print(f"Connecting DB: {DB_HOST} as {DB_USER}...")
@@ -74,7 +82,6 @@ def run_testcase(req: RunRequest):
         cur = conn.cursor()
     
         # 2) Lấy test case
-        # SỬA: Cột 'type' -> 'case_type' (theo db mới)
         cur.execute("""
             SELECT case_id, name, priority, case_type, description, suite_id,
                    fullscreen_page_name, app_version
@@ -87,16 +94,9 @@ def run_testcase(req: RunRequest):
             raise HTTPException(status_code=404, detail="Test case not found")
     
         case = {
-            "case_id": row[0],
-            "name": row[1],
-            "priority": row[2],
-            "type": row[3],
-            "description": row[4],
-            "suite_id": row[5],
-            "fullscreen_page_name": row[6],
-            "app_version": row[7],
-            "build_version": "1.0",
-            "git_hash": "HEAD"
+            "case_id": row[0], "name": row[1], "priority": row[2], "type": row[3],
+            "description": row[4], "suite_id": row[5], "fullscreen_page_name": row[6],
+            "app_version": row[7], "build_version": "1.0", "git_hash": "HEAD"
         }
     
         # 3) Lấy test steps
@@ -107,16 +107,10 @@ def run_testcase(req: RunRequest):
             ORDER BY step_order ASC
         """, (test_case_id,))
     
-        steps = []
         for s in cur:
             steps.append({
-                "order": s[0],
-                "action": s[1],
-                "locator_type": s[2],
-                "locator_value": s[3],
-                "value": s[4],
-                "url": s[5],
-                "expected": s[6],
+                "order": s[0], "action": s[1], "locator_type": s[2], "locator_value": s[3],
+                "value": s[4], "url": s[5], "expected": s[6],
             })
     
         if len(steps) == 0:
@@ -131,6 +125,8 @@ def run_testcase(req: RunRequest):
     
         # 4) Init Healenium manager
         print(f"Init Healenium at {HEALENIUM_HOST}")
+        
+        # --- KHỞI TẠO MANAGER ---
         manager = HealingManager(
             db_config_kb=DB_CONFIG,
             db_config_reporting=DB_CONFIG,
@@ -175,26 +171,30 @@ def run_testcase(req: RunRequest):
 
     except Exception as e:
         status = "failed"
-        # IN LỖI RA LOG DOCKER
         print("========== ERROR ============")
         traceback.print_exc()
         print("=============================")
+        # Ném lỗi ra để API trả về 500 kèm chi tiết
         raise HTTPException(status_code=500, detail=f"Test failed: {str(e)}")
 
     finally:
-        if driver: driver.quit()
-        if manager: manager.close()
+        # Cleanup an toàn (check if exist)
+        if driver: 
+            try: driver.quit()
+            except: pass
+        if manager: 
+            try: manager.close()
+            except: pass
         if cur: cur.close()
         if conn: conn.close()
 
     return {
         "test_case_id": test_case_id,
-        "test_case_name": case["name"],
+        "test_case_name": case.get("name", "Unknown"),
         "status": status,
         "steps": len(steps)
     }
 
-import uvicorn
-
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

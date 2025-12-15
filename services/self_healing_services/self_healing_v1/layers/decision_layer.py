@@ -141,12 +141,33 @@ class DecisionLayer:
 
     def make_decision(
         self, 
-        candidates: List[Dict[str, Any]], 
+        candidates: List[Any], # Đổi type hint thành Any vì nó có thể là str hoặc dict
         context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         
         logger.info("[DecisionLayer] Assessing candidates...")
         context = context or {}
+
+        # ------------------------------------------------------------------
+        # [BƯỚC 1 - QUAN TRỌNG]: Chuẩn hóa dữ liệu đầu vào (Normalization)
+        # Để tránh lỗi 'str' object has no attribute 'get'
+        # ------------------------------------------------------------------
+        normalized_candidates = []
+        for c in candidates:
+            if isinstance(c, str):
+                # Nếu là chuỗi, đóng gói nó vào Dict
+                normalized_candidates.append({
+                    "locator": c,
+                    "value": c,
+                    "score": 1.0,        # Giả định điểm tuyệt đối nếu từ DB/KB
+                    "source": "UNKNOWN"  # Hoặc lấy từ context nếu muốn
+                })
+            elif isinstance(c, dict):
+                normalized_candidates.append(c)
+        
+        # Gán lại list đã chuẩn hóa
+        candidates = normalized_candidates
+        # ------------------------------------------------------------------
 
         # 1. Tính toán ngưỡng chấp nhận
         risk_score = self._calculate_risk_score(context)
@@ -165,28 +186,46 @@ class DecisionLayer:
             logger.info("[DecisionLayer] Không có candidate nào để đánh giá.")
             return default_result
 
-        # 2. Chuẩn hóa & Sắp xếp Candidate
-        # Layer 2 đã trả về Score chuẩn (0-1), ta chỉ việc dùng.
+        # 2. Xử lý & Sắp xếp Candidate
         processed_candidates = []
         for c in candidates:
-            # Lấy thông tin locator. Hỗ trợ cả format cũ và mới
-            raw_locator = c.get("locator") # Mong đợi: (By.ID, 'val')
+            raw_locator = c.get("locator") or c.get("value")
             score = self._clamp01(c.get("score", 0.0))
             source = c.get("source", "unknown")
 
-            # Nếu locator chưa ở dạng Tuple (By, value), cần parse (đề phòng)
-            if not raw_locator:
-                # Logic fallback cho code cũ
+            # [LOGIC MỚI] Đảm bảo raw_locator luôn là Tuple (By, Value)
+            final_locator_tuple = None
+
+            if isinstance(raw_locator, tuple):
+                # Nếu đã là tuple (By.ID, 'val') -> Giữ nguyên
+                final_locator_tuple = raw_locator
+            elif isinstance(raw_locator, str):
+                # Nếu là string -> Tự động đoán Strategy
+                clean_loc = raw_locator.strip()
+                if clean_loc.startswith("/") or clean_loc.startswith("("):
+                    final_locator_tuple = (By.XPATH, clean_loc)
+                else:
+                    final_locator_tuple = (By.CSS_SELECTOR, clean_loc)
+            else:
+                # Trường hợp fallback dữ liệu cũ (có key 'by' và 'value' riêng)
                 by_str = c.get("by", "xpath")
                 val_str = c.get("value", "")
-                raw_locator = (self._resolve_by_string(by_str), val_str)
+                if val_str:
+                    final_locator_tuple = (self._resolve_by_string(by_str), val_str)
+
+            # Nếu sau tất cả các bước mà vẫn không có locator -> Skip
+            if not final_locator_tuple:
+                continue
 
             processed_candidates.append({
-                "locator": raw_locator,
+                "locator": final_locator_tuple, # Đã chuẩn hóa thành Tuple
                 "score": score,
                 "source": source,
                 "priority": self.source_priority.get(source, 99)
             })
+
+        if not processed_candidates:
+             return default_result
 
         # Sắp xếp: Ưu tiên Source (nhỏ tốt hơn) -> Sau đó đến Score (cao tốt hơn)
         processed_candidates.sort(key=lambda x: (x['priority'], -x['score']))
@@ -200,12 +239,10 @@ class DecisionLayer:
         status = "REJECTED"
         chosen_locator = None
         
-        # Logic so sánh ngưỡng
         if best_score >= threshold:
             status = "ACCEPTED"
             chosen_locator = best_candidate["locator"]
         elif best_score >= (threshold - self.soft_margin):
-            # Vùng chấp nhận mềm (nếu cần cảnh báo nhưng vẫn cho chạy)
             status = "SOFT_ACCEPT" 
             chosen_locator = best_candidate["locator"]
             logger.warning(f"[DecisionLayer] Soft Accept: Score {best_score:.2f} gần đạt ngưỡng {threshold:.2f}")
@@ -214,7 +251,7 @@ class DecisionLayer:
             logger.warning(f"[DecisionLayer] Từ chối tất cả. Score cao nhất ({best_score:.2f}) < Threshold ({threshold:.2f})")
 
         return {
-            "chosen_locator": chosen_locator,
+            "chosen_locator": chosen_locator, # Tuple (By, Value)
             "source": best_candidate["source"],
             "confidence": best_score,
             "risk_score": risk_score,
@@ -223,12 +260,24 @@ class DecisionLayer:
         }
 
     def _resolve_by_string(self, by_str: str):
-        """Helper map string sang Selenium By (cho trường hợp dữ liệu cũ)"""
+        """Helper map string sang Selenium By"""
         mapping = {
             "id": By.ID, "xpath": By.XPATH, "name": By.NAME, 
-            "class": By.CLASS_NAME, "css": By.CSS_SELECTOR
+            "class": By.CLASS_NAME, "css": By.CSS_SELECTOR,
+            "css selector": By.CSS_SELECTOR, "link text": By.LINK_TEXT
         }
         return mapping.get(str(by_str).lower(), By.XPATH)
 
     # Alias
     decide = make_decision
+
+    # Các hàm phụ trợ cần thiết (giả định bạn đã có trong class)
+    def _calculate_risk_score(self, context):
+        return 0.0 # Placeholder
+    
+    def _calculate_adaptive_threshold(self, risk_score):
+        return 0.5 # Placeholder
+    
+    def _clamp01(self, val):
+        return max(0.0, min(1.0, float(val)))
+    
