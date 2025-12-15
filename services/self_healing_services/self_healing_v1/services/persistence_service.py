@@ -2,7 +2,8 @@ import os
 import json
 import hashlib
 import logging
-from datetime import datetime
+from datetime import datetime, timezone 
+import time
 from typing import Dict, Any, Optional, List, Tuple
 
 import psycopg2
@@ -161,15 +162,17 @@ class PersistenceService:
                 test_id, timestamp, raw_result,
                 heal_attempted, heal_success, final_result,
                 calculated_risk, total_duration_ms,
-                total_heal_attempts, total_heal_success, app_version
+                total_heal_attempts, total_heal_success, app_version,
+                run_id 
             )
             VALUES (
                 %(test_id)s, %(timestamp)s, %(raw_result)s,
                 %(heal_attempted)s, %(heal_success)s, %(final_result)s,
                 %(calculated_risk)s, %(total_duration_ms)s,
-                %(total_heal_attempts)s, %(total_heal_success)s, %(app_version)s
+                %(total_heal_attempts)s, %(total_heal_success)s, %(app_version)s,
+                gen_random_uuid()::text
             )
-            RETURNING id;
+            RETURNING run_id;
         """
         try:
             with self.conn.cursor() as cur:
@@ -178,74 +181,88 @@ class PersistenceService:
             self.conn.commit()
             return run_id
         except Exception as e:
-            logger.error(f"[PersistenceService] save_raw_run_and_get_id lỗi: {e}")
-            if self.conn:
-                self.conn.rollback()
+            logger.error(f"[Persistence] save_raw_run lỗi: {e}")
+            if self.conn: self.conn.rollback()
             return None
+        
+    def _update_run_history_on_heal_status(self, run_id: str, heal_status: str, risk_score: float | None = None):
+        if not self.conn: return
 
-    def _update_run_history_on_heal_status(
-        self, run_id: int, heal_status: str, risk_score: float | None = None
-    ):
-        if not self.conn:
-            return
-
-        heal_success = heal_status == "SUCCESS"
+        heal_success = (heal_status == "SUCCESS")
         try:
             with self.conn.cursor() as cur:
                 update_sql = f"""
                     UPDATE {TEST_RUN_HISTORY_TABLE}
                     SET
-                        raw_result = 'Fail',
+                        raw_result = 'FAILED',
                         heal_attempted = TRUE,
                         heal_success = %s,
-                        calculated_risk = COALESCE(%s, calculated_risk),
+                        calculated_risk = GREATEST(COALESCE(%s, 0), calculated_risk),
                         total_heal_attempts = total_heal_attempts + 1,
                         total_heal_success  = total_heal_success + %s
-                    WHERE id = %s;
+                    WHERE run_id = %s;
                 """
-                cur.execute(
-                    update_sql,
-                    (heal_success, risk_score, 1 if heal_success else 0, run_id),
-                )
+                cur.execute(update_sql, (heal_success, risk_score, 1 if heal_success else 0, run_id))
             self.conn.commit()
         except Exception as e:
-            logger.error(
-                f"[PersistenceService] _update_run_history_on_heal_status lỗi: {e}"
-            )
-            if self.conn:
-                self.conn.rollback()
+            logger.error(f"[Persistence] _update_run_history lỗi: {e}")
+            if self.conn: self.conn.rollback()
 
-    def update_run_history_final_status(
-        self, run_id: int, final_status: str, total_duration_ms: int | None = None
-    ):
-        if not self.conn:
-            return
+    def finish_test_run(self, run_id: str, test_id: str, start_time: datetime, final_status_from_runner: str = None):
+        """
+        [FIXED] Tự động xử lý Timezone để tránh lỗi TypeError khi tính duration.
+        """
+        if not self.conn: return
+
+        # 1. Lấy thời gian kết thúc (Có Timezone UTC)
+        end_time = datetime.now(timezone.utc)
+
+        # 2. [QUAN TRỌNG] Kiểm tra start_time đầu vào
+        # Nếu start_time không có timezone (naive), ta ép nó thành UTC để khớp với end_time
+        if start_time.tzinfo is None:
+             start_time = start_time.replace(tzinfo=timezone.utc)
+             
+        # 3. Tính toán (Giờ cả 2 đều đã có timezone nên trừ được bình thường)
+        duration_ms = int((end_time - start_time).total_seconds() * 1000)
+        
+        final_res = final_status_from_runner if final_status_from_runner else "PASSED"
+
+        sql = f"""
+            UPDATE {TEST_RUN_HISTORY_TABLE}
+            SET
+                total_duration_ms = %s,
+                final_result = %s,
+                raw_result = CASE 
+                    WHEN raw_result = 'N/A' OR raw_result IS NULL THEN 'PASSED'
+                    ELSE raw_result
+                END
+            WHERE run_id = %s;
+        """
+
         try:
             with self.conn.cursor() as cur:
-                update_sql = f"""
+                cur.execute(sql, (duration_ms, final_res, run_id))
+            self.conn.commit()
+            logger.info(f"[Persistence] Đã chốt sổ run_id={run_id}, duration={duration_ms}ms, final={final_res}")
+        except Exception as e:
+            logger.error(f"[Persistence] finish_test_run lỗi: {e}")
+            self.conn.rollback()
+
+    def update_run_history_final_status(self, run_id: str, final_status: str, total_duration_ms: int | None = None):
+        # Wrapper đơn giản gọi finish_test_run hoặc update trực tiếp
+        if not self.conn: return
+        try:
+            with self.conn.cursor() as cur:
+                sql = f"""
                     UPDATE {TEST_RUN_HISTORY_TABLE}
-                    SET
-                        final_result      = %s,
-                        total_duration_ms = COALESCE(%s, total_duration_ms),
-                        raw_result = CASE
-                            WHEN total_heal_attempts = 0
-                                 AND %s = 'Pass'
-                                 AND raw_result = 'N/A'
-                            THEN 'Pass'
-                            ELSE raw_result
-                        END
-                    WHERE id = %s;
+                    SET final_result = %s, total_duration_ms = COALESCE(%s, total_duration_ms)
+                    WHERE run_id = %s
                 """
-                cur.execute(
-                    update_sql, (final_status, total_duration_ms, final_status, run_id)
-                )
+                cur.execute(sql, (final_status, total_duration_ms, run_id))
             self.conn.commit()
         except Exception as e:
-            logger.error(
-                f"[PersistenceService] update_run_history_final_status lỗi: {e}"
-            )
-            if self.conn:
-                self.conn.rollback()
+            logger.error(f"update_final_status lỗi: {e}")
+            self.conn.rollback()
 
     # ----------------------------------------------------------------------
     # 2) Upsert Knowledge Base: public.healing_knowledge
@@ -259,118 +276,89 @@ class PersistenceService:
         duration_ms: int | None,
         commit_info: Dict[str, Any] | None,
         app_version: str | None,
-        project_id: int | None = None,
+        project_id: str | None = None,
         source_type: str = "AUTO",
     ):
-        if not self.conn:
-            return
+        if not self.conn: return
+
+        # 1. Tính Fingerprint Hash (Để dùng cho ON CONFLICT thay vì dùng JSON raw)
+        # Sắp xếp keys để đảm bảo {"a":1, "b":2} giống {"b":2, "a":1}
+        try:
+            fp_str = json.dumps(fingerprint, sort_keys=True, ensure_ascii=False)
+            fingerprint_hash = hashlib.md5(fp_str.encode("utf-8")).hexdigest()
+        except Exception:
+            fingerprint_hash = "unknown_hash"
 
         old_by, old_val = old_locator
         new_by, new_val = new_locator if new_locator else ("", "")
-
         succ_inc = 1 if success else 0
         fail_inc = 0 if success else 1
         dur = int(duration_ms or 0)
 
+        # 2. Cập nhật SQL: Thêm cột fingerprint_hash và sửa ON CONFLICT
         sql = f"""
             INSERT INTO {KB_TABLE} (
-                project_id, fingerprint,
+                project_id, fingerprint, fingerprint_hash,
                 old_locator_by, old_locator_value,
                 new_locator_by, new_locator_value,
-                success_count, failure_count,
-                avg_repair_ms,
+                success_count, failure_count, avg_repair_ms,
                 last_success_at, last_failure_at,
-                commit_info, source_type, app_version
+                commit_info, source_type
             )
-            VALUES (
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s,
-                %s, %s,
-                %s, %s, %s
-            )
-            ON CONFLICT (fingerprint, old_locator_value, new_locator_value)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            
+            -- [FIX] Dùng fingerprint_hash thay vì fingerprint (json)
+            ON CONFLICT (fingerprint_hash, old_locator_value, new_locator_value)
+            
             DO UPDATE SET
                 success_count = public.healing_knowledge.success_count + %s,
                 failure_count = public.healing_knowledge.failure_count + %s,
-                avg_repair_ms = CASE
-                    WHEN %s = 1 THEN
-                        ((public.healing_knowledge.avg_repair_ms * GREATEST(public.healing_knowledge.success_count,0))
-                         + %s)
-                        / NULLIF(public.healing_knowledge.success_count + 1, 0)
-                    ELSE public.healing_knowledge.avg_repair_ms
-                END,
+                avg_repair_ms = CASE WHEN %s = 1 THEN 
+                    ((public.healing_knowledge.avg_repair_ms * GREATEST(public.healing_knowledge.success_count,0)) + %s) 
+                    / NULLIF(public.healing_knowledge.success_count + 1, 0)
+                    ELSE public.healing_knowledge.avg_repair_ms END,
                 last_success_at = CASE WHEN %s = 1 THEN NOW() ELSE public.healing_knowledge.last_success_at END,
                 last_failure_at = CASE WHEN %s = 1 THEN NOW() ELSE public.healing_knowledge.last_failure_at END,
                 commit_info     = COALESCE(EXCLUDED.commit_info, public.healing_knowledge.commit_info),
-                app_version     = COALESCE(EXCLUDED.app_version, public.healing_knowledge.app_version),
                 last_updated    = NOW();
         """
-
+        
         params = (
-            project_id,
-            Json(fingerprint),
-            old_by,
-            old_val,
-            new_by,
-            new_val,
-            succ_inc,
-            fail_inc,
-            dur if success else 0,
-            self._now_utc() if success else None,
-            self._now_utc() if not success else None,
-            Json(commit_info or {}),
-            source_type,
-            app_version,
-            succ_inc,
-            fail_inc,
-            succ_inc,
-            dur,
-            succ_inc,
-            fail_inc,
+            str(project_id) if project_id else None, 
+            Json(fingerprint), 
+            fingerprint_hash, # Tham số mới
+            old_by, old_val, new_by, new_val,
+            succ_inc, fail_inc, dur if success else 0,
+            self._now_utc() if success else None, self._now_utc() if not success else None,
+            Json(commit_info or {}), source_type,
+            # Params for UPDATE
+            succ_inc, fail_inc, succ_inc, dur, succ_inc, fail_inc
         )
 
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params)
             self.conn.commit()
+            # logger.info(f"[Persistence] Upsert KB thành công: {fingerprint_hash}")
         except Exception as e:
-            logger.error(f"[PersistenceService] _upsert_kb lỗi: {e}")
-            if self.conn:
-                self.conn.rollback()
-
+            logger.error(f"[Persistence] _upsert_kb lỗi: {e}")
+            if self.conn: self.conn.rollback()
     # ----------------------------------------------------------------------
     # 3) locator_instability
     # ----------------------------------------------------------------------
-    def _update_locator_instability(
-        self,
-        locator_old: str,
-        success: bool,
-        project_id: int | None = None,
-    ):
-        if not self.conn:
-            return
+    def _update_locator_instability(self, locator_old: str, success: bool, project_id: str | None = None):
+        if not self.conn: return
 
-        project_id_norm = project_id if project_id is not None else 0
         succ_inc = 1 if success else 0
         fail_inc = 0 if success else 1
-
+        
         sql = f"""
             INSERT INTO {LOCATOR_INSTABILITY_TABLE} (
-                project_id, locator_old,
-                total_failures, total_success,
-                instability_rate,
-                last_failed_at, last_success_at
+                project_id, locator_old, total_failures, total_success,
+                instability_rate, last_failed_at, last_success_at
             )
-            VALUES (
-                %s, %s,
-                %s, %s,
-                0.00,
-                %s, %s
-            )
-            ON CONFLICT (project_id, locator_old)
+            VALUES (%s, %s, %s, %s, 0.00, %s, %s)
+            ON CONFLICT (locator_old) -- Sửa: Constraint là UNIQUE(locator_old)
             DO UPDATE SET
                 total_failures = {LOCATOR_INSTABILITY_TABLE}.total_failures + %s,
                 total_success  = {LOCATOR_INSTABILITY_TABLE}.total_success  + %s,
@@ -378,345 +366,153 @@ class PersistenceService:
                 last_success_at= CASE WHEN %s = 1 THEN NOW() ELSE {LOCATOR_INSTABILITY_TABLE}.last_success_at END,
                 instability_rate = ROUND(
                     ({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)::NUMERIC * 100.0
-                    / NULLIF(({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)
-                           + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
+                    / NULLIF(({LOCATOR_INSTABILITY_TABLE}.total_failures + %s) + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
                     2
                 ),
                 updated_at = NOW();
         """
-
         params = (
-            project_id_norm,
-            locator_old,
-            fail_inc,
-            succ_inc,
-            self._now_utc() if fail_inc else None,
-            self._now_utc() if succ_inc else None,
-            fail_inc,
-            succ_inc,
-            fail_inc,
-            succ_inc,
-            fail_inc,
-            fail_inc,
-            succ_inc,
+            project_id, locator_old, fail_inc, succ_inc,
+            self._now_utc() if fail_inc else None, self._now_utc() if succ_inc else None,
+            fail_inc, succ_inc, fail_inc, succ_inc,
+            fail_inc, fail_inc, succ_inc
         )
-
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params)
             self.conn.commit()
         except Exception as e:
-            logger.error(
-                f"[PersistenceService] _update_locator_instability lỗi: {e}"
-            )
-            if self.conn:
-                self.conn.rollback()
-
+            logger.error(f"[Persistence] _update_locator_instability lỗi: {e}")
+            if self.conn: self.conn.rollback()
     # ----------------------------------------------------------------------
-    # 4) heal_event insert
+    # 4) heal_event insert (Đã sửa để khớp schema DB và thêm logic nghiệp vụ)
     # ----------------------------------------------------------------------
     def _insert_heal_event(
-        self,
-        context: HealingContext,
-        engine: str,
-        success: bool,
-        locator_old: str,
-        locator_new: str | None,
-        chosen_source: str | None,
-        reason: str | None,
-        basis_json: Dict[str, Any] | None,
+        self, context: HealingContext, engine: str, success: bool,
+        locator_old: str, locator_new: str | None, chosen_source: str | None,
+        reason: str | None, basis_json: Dict[str, Any] | None,
     ):
-        if not self.conn:
-            return
+        if not self.conn: return
 
         test_ctx = self._extract_test_context(context)
-        test_id = test_ctx.get("test_id", "unknown_test")
         run_id = test_ctx.get("run_id")
-        page_url = getattr(context, "page_url", test_ctx.get("page_url"))
-        app_version = test_ctx.get("app_version")
-
-        started_at = getattr(context, "healing_started_at", None) or self._now_utc()
-        ended_at = self._now_utc()
         
-        confidence = getattr(context, "confidence_of_chosen", None)
-        risk_score = getattr(context, "risk_score", None)
-        threshold = getattr(context, "adaptive_threshold", None)
+        started_at = getattr(context, "healing_started_at", None) or self._now_utc()
+        duration_ms = int((self._now_utc() - started_at).total_seconds() * 1000)
 
-        ssim_score = getattr(context, "last_ssim_score", None)
-        visual_status = getattr(context, "visual_validation_status", None)
-
-        status = "SUCCESS" if success else "FAILURE"
+        final_source = "UNKNOWN"
+        if chosen_source:
+            if any(k in chosen_source.lower() for k in ["suggestion", "kb"]): final_source = "KB"
+            elif any(k in chosen_source.lower() for k in ["database", "db", "healenium"]): final_source = "DB"
+            else: final_source = chosen_source
 
         sql = f"""
             INSERT INTO {HEAL_EVENT_TABLE} (
-                run_id, test_id, project_id, page_url, app_version,
-                engine, locator_old, locator_new, chosen_source,
+                run_id, test_id, project_id, page_url,
+                locator_old, locator_new, engine, chosen_source,
                 confidence, risk_score, threshold,
-                ssim_score, visual_status,
-                started_at, ended_at,
-                native_overhead_ms, python_overhead_ms,
-                basis, status, reason
+                ssim_score, visual_status, status, error_message,
+                started_at, duration_ms
             )
-            VALUES (
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s,
-                %s, %s, %s
-            );
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
-
+        
         params = (
-            run_id,
-            test_id,
-            None,
-            page_url,
-            app_version,
-            engine,
-            locator_old,
-            locator_new,
-            chosen_source,
-            confidence,
-            risk_score,
-            threshold,
-            ssim_score,
-            visual_status,
-            started_at,
-            ended_at,
-            getattr(context, "native_overhead_ms", None),
-            getattr(context, "python_overhead_ms", None),
-            Json(basis_json or {}),
-            status,
-            reason,
+            run_id, test_ctx.get("test_id", "unknown"), None, getattr(context, "page_url", None),
+            locator_old, locator_new, engine, final_source,
+            getattr(context, "confidence_of_chosen", 0.0), getattr(context, "risk_score", 0.0),
+            getattr(context, "adaptive_threshold", 0.0), getattr(context, "last_ssim_score", 0.0),
+            getattr(context, "visual_validation_status", "UNKNOWN"),
+            "SUCCESS" if success else "FAILURE", reason, started_at, duration_ms
         )
 
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params)
             self.conn.commit()
-
-            if run_id is not None:
-                try:
-                    self._update_run_history_on_heal_status(
-                        run_id=run_id,
-                        heal_status="SUCCESS" if success else "FAILURE",
-                        risk_score=risk_score,
-                    )
-                except Exception as e2:
-                    logger.error(
-                        "[PersistenceService] Lỗi update_run_history_on_heal_status: %s",
-                        e2,
-                    )
-
+            
+            if run_id:
+                self._update_run_history_on_heal_status(run_id, "SUCCESS" if success else "FAILURE", getattr(context, "risk_score", 0.0))
         except Exception as e:
-            logger.error(f"[PersistenceService] _insert_heal_event lỗi: {e}")
-            if self.conn:
-                self.conn.rollback()
-
+            logger.error(f"[Persistence] _insert_heal_event lỗi: {e}")
+            if self.conn: self.conn.rollback()
     # ----------------------------------------------------------------------
     # 5) visual_validation_event (NEW)
     # ----------------------------------------------------------------------
     def log_visual_validation_event(
-        self,
-        *,
-        test_id: str | None,
-        run_id: int | None,
-        scope: str,
-        target_name: str,
-        page_url: str | None,
-        status: str,
-        ssim_score: float | None = None,
-        extra_metrics: Dict[str, Any] | None = None,
-        baseline_path: Optional[str] = None,
-        current_path: Optional[str] = None,
-        diff_path: Optional[str] = None,
+        self, *, test_id: str | None, run_id: str | None, scope: str,
+        target_name: str, page_url: str | None, status: str,
+        ssim_score: float | None = None, extra_metrics: Dict[str, Any] | None = None,
+        baseline_path: str = None, current_path: str = None, diff_path: str = None,
     ):
-        if not self.conn:
-            return
+        if not self.conn: return
 
-        baseline_url = current_url = diff_url = None
-
+        b_url = c_url = d_url = None
         if self.storage_service:
+            from pathlib import Path
             try:
-                from pathlib import Path
-                if baseline_path:
-                    baseline_url = self.storage_service.upload_file(Path(baseline_path), scope.lower())
-                if current_path:
-                    current_url = self.storage_service.upload_file(Path(current_path), scope.lower())
-                if diff_path:
-                    diff_url = self.storage_service.upload_file(Path(diff_path), scope.lower())
+                if baseline_path: b_url = self.storage_service.upload_file(Path(baseline_path), scope.lower())
+                if current_path: c_url = self.storage_service.upload_file(Path(current_path), scope.lower())
+                if diff_path: d_url = self.storage_service.upload_file(Path(diff_path), scope.lower())
             except Exception as e:
-                logger.error(
-                    f"[PersistenceService] Upload visual file lỗi: {e}",
-                    exc_info=True,
-                )
+                logger.error(f"[Persistence] Upload visual error: {e}")
 
         sql = f"""
             INSERT INTO {VISUAL_VALIDATION_TABLE} (
                 test_id, run_id, scope, target_name,
                 page_url, status, ssim_score, extra_metrics,
                 baseline_path, current_path, diff_path
-            )
-            VALUES (
-                %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s
-            );
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
-        params = (
-            test_id, run_id, scope, target_name,
-            page_url, status, ssim_score, Json(extra_metrics or {}),
-            baseline_url, current_url, diff_url,
-        )
-
         try:
             with self.conn.cursor() as cur:
-                cur.execute(sql, params)
+                cur.execute(sql, (
+                    test_id, run_id, scope, target_name, page_url, status, ssim_score,
+                    Json(extra_metrics or {}), b_url, c_url, d_url
+                ))
             self.conn.commit()
-            logger.info(
-                f"[PersistenceService] Đã log visual_validation_event: "
-                f"scope={scope}, target={target_name}, status={status}, ssim={ssim_score}"
-            )
         except Exception as e:
-            logger.error(f"[PersistenceService] log_visual_validation_event lỗi: {e}")
-            if self.conn:
-                self.conn.rollback()
+            logger.error(f"[Persistence] log_visual_validation_event lỗi: {e}")
+            if self.conn: self.conn.rollback()
 
     # ----------------------------------------------------------------------
     # PUBLIC API mới cho Manager v1
     # ----------------------------------------------------------------------
-    def log_healing_success(
-        self,
-        context: HealingContext,
-        engine: str,
-        original_locator: Tuple[str, str],
-        healed_locator: Tuple[str, str],
-        best_candidate: Dict[str, Any],
-        basis_json: Dict[str, Any] | None = None,
-    ):
-        test_ctx = self._extract_test_context(context)
-        locator_old_str = self._fmt_locator(*original_locator)
-        locator_new_str = self._fmt_locator(*healed_locator)
-
+    def log_healing_success(self, context: HealingContext, engine: str, original_locator: Tuple[str, str], healed_locator: Tuple[str, str], best_candidate: Dict[str, Any], basis_json: Dict[str, Any] | None = None):
         self._insert_heal_event(
-            context=context,
-            engine=engine,
-            success=True,
-            locator_old=locator_old_str,
-            locator_new=locator_new_str,
-            chosen_source=best_candidate.get("source"),
-            reason=None,
-            basis_json=basis_json,
+            context, engine, True, self._fmt_locator(*original_locator), self._fmt_locator(*healed_locator),
+            best_candidate.get("source"), None, basis_json
         )
-
-        fingerprint = getattr(context, "fingerprint", None) or {
-            "locator_by": original_locator[0],
-            "locator_value": original_locator[1],
-            "page_url": test_ctx.get("page_url"),
-        }
-        commit_info = test_ctx.get("commit_info", {})
-        app_version = test_ctx.get("app_version")
+        
+        # Update KB & Instability
+        t_ctx = self._extract_test_context(context)
+        fingerprint = getattr(context, "fingerprint", None)
+        if not fingerprint:
+            fingerprint = {"locator_by": original_locator[0], "locator_value": original_locator[1], "page_url": t_ctx.get("page_url")}
 
         self._upsert_kb(
-            fingerprint=fingerprint,
-            old_locator=original_locator,
-            new_locator=healed_locator,
-            success=True,
-            duration_ms=getattr(context, "healing_duration_ms", None),
-            commit_info=commit_info,
-            app_version=app_version,
+            fingerprint, original_locator, healed_locator, True,
+            getattr(context, "healing_duration_ms", 0), t_ctx.get("commit_info", {}),
+            t_ctx.get("app_version"), t_ctx.get("project_id")
         )
+        self._update_locator_instability(self._fmt_locator(*original_locator), True)
 
-        self._update_locator_instability(
-            locator_old=locator_old_str,
-            success=True,
-        )
-        logger.info("[PersistenceService] Đã lưu heal SUCCESS (workflow mới).")
-
-    def log_healing_failure(
-        self,
-        context: HealingContext,
-        engine: str,
-        reason: str,
-        basis_json: Dict[str, Any] | None = None,
-    ):
-        test_ctx = self._extract_test_context(context)
+    def log_healing_failure(self, context: HealingContext, engine: str, reason: str, basis_json: Dict[str, Any] | None = None):
         broken = getattr(context, "broken_locator", ("unknown", "unknown"))
-        locator_old_str = self._fmt_locator(*broken)
-
         self._insert_heal_event(
-            context=context,
-            engine=engine,
-            success=False,
-            locator_old=locator_old_str,
-            locator_new=None,
-            chosen_source=None,
-            reason=reason,
-            basis_json=basis_json,
+            context, engine, False, self._fmt_locator(*broken), None, None, reason, basis_json
         )
-
-        fingerprint = getattr(context, "fingerprint", None) or {
-            "locator_by": broken[0],
-            "locator_value": broken[1],
-            "page_url": test_ctx.get("page_url"),
-        }
-        commit_info = test_ctx.get("commit_info", {})
-        app_version = test_ctx.get("app_version")
-
-        self._upsert_kb(
-            fingerprint=fingerprint,
-            old_locator=broken,
-            new_locator=broken,
-            success=False,
-            duration_ms=getattr(context, "healing_duration_ms", None),
-            commit_info=commit_info,
-            app_version=app_version,
-        )
-
-        self._update_locator_instability(
-            locator_old=locator_old_str,
-            success=False,
-        )
-        logger.info(f"[PersistenceService] Đã lưu heal FAILURE (reason={reason}).")
+        # Update Instability
+        self._update_locator_instability(self._fmt_locator(*broken), False)
 
     def save_healing_event(self, context: HealingContext):
-        engine = getattr(context, "engine_used", "PYTHON")
-        if engine == "RAW":
-            return
-        if engine and engine.startswith("BACKEND"):
-            engine = "NATIVE"
-        
-        final_status = getattr(context, "final_status", "FAILURE")
-
-        if final_status == "SUCCESS":
-            broken = getattr(context, "broken_locator", None)
-            chosen = getattr(context, "chosen_locator", None)
-            best_cand = getattr(context, "best_candidate", None)
-
-            if not broken or not chosen or not best_cand:
-                self.log_healing_failure(
-                    context, engine=engine, reason="MISSING_CONTEXT"
-                )
-                return
-
-            self.log_healing_success(
-                context=context,
-                engine=engine,
-                original_locator=broken,
-                healed_locator=chosen,
-                best_candidate=best_cand,
-                basis_json=getattr(context, "basis_json", None),
-            )
+        # Dispatcher function
+        if getattr(context, "final_status", "FAILURE") == "SUCCESS":
+            if context.broken_locator and context.chosen_locator:
+                best = getattr(context, "best_candidate", {}) or {"source": getattr(context, "source_of_chosen", "UNKNOWN")}
+                self.log_healing_success(context, "PYTHON", context.broken_locator, context.chosen_locator, best)
         else:
-            self.log_healing_failure(
-                context=context,
-                engine=engine,
-                reason="PIPELINE_FAILED",
-                basis_json=getattr(context, "basis_json", None),
-            )
-
+            self.log_healing_failure(context, "PYTHON", "Pipeline Failed")
     # ----------------------------------------------------------------------
     # 6) [NEW] Query Healenium Database trực tiếp
     # ----------------------------------------------------------------------
