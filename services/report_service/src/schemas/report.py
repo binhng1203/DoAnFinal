@@ -3,29 +3,36 @@ from marshmallow import fields
 
 class HealEventSchema(ma.Schema):
     class Meta:
-        # Thêm các trường mới
-        fields = ("id", "locator_old", "locator_new", "status", "confidence", "engine", "reason", "basis", "created_at")
+        # Cập nhật fields theo đúng SQL 5.2
+        fields = (
+            "id", "run_id", "test_id", "project_id", 
+            "page_url", "locator_old", "locator_new", 
+            "engine", "chosen_source", "confidence", 
+            "status", "error_message", "duration_ms", "created_at"
+        )
 
 class VisualEventSchema(ma.Schema):
-    # Mapping lại tên cột cho đẹp
-    baseline_url = fields.String(attribute="baseline_path")
-    current_url = fields.String(attribute="current_path")
-    diff_url = fields.String(attribute="diff_path")
-    
     class Meta:
-        fields = ("id", "scope", "target_name", "status", "ssim_score", "baseline_url", "current_url", "diff_url")
+        # Cập nhật fields theo đúng SQL 5.3
+        fields = (
+            "id", "scope", "target_name", "status", "ssim_score", 
+            "baseline_path", "current_path", "diff_path", "created_at"
+        )
 
 class ReportSummarySchema(ma.Schema):
-    # Map id -> run_id
-    run_id = fields.String(attribute="id")
+    # Output run_id (UUID) thay vì id (BigInt)
     class Meta:
         fields = ("run_id", "test_id", "timestamp", "final_result", "heal_attempted", "heal_success", "total_duration_ms", "author")
 
 class ReportDetailSchema(ma.Schema):
-    run_id = fields.String(attribute="id")
+    # Nested schemas
     heal_events = fields.List(fields.Nested(HealEventSchema))
     visual_events = fields.List(fields.Nested(VisualEventSchema))
     
     class Meta:
-        fields = ("run_id", "test_id", "timestamp", "final_result", "heal_attempted", "heal_success", 
-                  "app_version", "git_hash", "heal_events", "visual_events")
+        fields = (
+            "run_id", "test_id", "timestamp", "final_result", 
+            "heal_attempted", "heal_success", "calculated_risk",
+            "app_version", "git_hash", 
+            "heal_events", "visual_events"
+        )

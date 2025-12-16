@@ -41,7 +41,7 @@ const testCaseService = {
   async runProactiveTestCase(payload) {
       // POST http://localhost:8005/proactive
       // Payload: { project_id, case_id, head_sha, base_sha, author }
-      return axios.post("http://localhost:8005/proactive", payload);
+      return axios.post("/proactive-service/proactive", payload);
     },
 
   // Tạo Test Step
@@ -59,6 +59,24 @@ const testCaseService = {
   async deleteTestStep(stepId) {
     // DELETE /api/v1/steps/{stepId}
     return apiClient.delete(`/api/v1/steps/${stepId}`);
+  },
+
+  // Lấy danh sách Report từ Port 8006
+  async getTestCaseReports(testId, page = 1, limit = 10) {
+    // GET http://localhost:8006/api/v1/reports?test_id=...&page=...&limit=...
+    return axios.get("/report-service/api/v1/reports", {
+      params: {
+        test_id: testId,
+        page: page,
+        limit: limit
+      }
+    });
+  },
+
+  // Lấy chi tiết 1 lần chạy (Report Detail)
+  async getTestRunDetail(runId) {
+    // GET http://localhost:8006/api/v1/reports/{runId}
+    return axios.get(`/report-service/api/v1/reports/${runId}`);
   },
 };
 

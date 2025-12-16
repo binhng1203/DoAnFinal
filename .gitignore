@@ -11,5 +11,8 @@ services/mongo_data/
 services/proactive_prevent_service/repo_cache_data/
 
 # Environment settings
-.env
+.venv
 venv/
+
+.evn 
+env/
