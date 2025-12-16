@@ -1,13 +1,13 @@
 // src/pages/TestCases/TestCaseDetailPage.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
-import { Pencil, Trash, Play, MoreHorizontal, X , CheckCircle2, ChevronDown, Zap} from "lucide-react";
+import { Pencil, Trash, Play, MoreHorizontal, X, AlertTriangle, CheckCircle2, ChevronDown, Zap} from "lucide-react";
 import { formatDate } from "../../utils/formatDate";
 import testCaseService from "../../services/testCaseService";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal";
 import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
-
+import RunDetailModal from "../../components/test-cases/RunDetailModal";
 
 export default function TestCaseDetailPage() {
   const { projectId, suiteId, caseId } = useParams();
@@ -49,6 +49,91 @@ export default function TestCaseDetailPage() {
       tags: payload.tags, // Đảm bảo tags được cập nhật
       // Lưu ý: Nếu backend trả về object đầy đủ sau khi update thì tốt nhất là setTestCase(res.data)
     }));
+  };
+
+  // ====== STATE CHO DETAIL MODAL ======
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState(null);
+  const [selectedRunInfo, setSelectedRunInfo] = useState(null);
+
+  // ====== HÀM MỞ MODAL CHI TIẾT ======
+  const handleOpenRunDetail = (reportItem) => {
+    setSelectedRunId(reportItem.run_id);
+    setSelectedRunInfo({
+        duration: formatDuration(reportItem.total_duration_ms),
+        // Có thể thêm các field khác từ list nếu API detail thiếu
+    });
+    setIsDetailModalOpen(true);
+  };
+
+  // ====== STATE CHO REPORT (MỚI) ======
+  const [reports, setReports] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportPage, setReportPage] = useState(1);
+  const [reportPagination, setReportPagination] = useState({
+    total_items: 0,
+    total_pages: 1
+  });
+
+  // ====== HÀM TÍNH TOÁN THỐNG KÊ (SUMMARY) ======
+  // Lưu ý: Vì API phân trang, nên thống kê này chỉ chính xác trên trang hiện tại 
+  // hoặc bạn cần API trả về summary riêng. Ở đây mình tính tạm trên list tải về.
+  const summary = React.useMemo(() => {
+    let stats = {
+      total: reportPagination.total_items, // Lấy tổng số bản ghi từ API
+      pass: 0,
+      fail: 0,
+      healed_attempt: 0,
+      healed_pass: 0,
+      healed_fail: 0
+    };
+
+    reports.forEach(r => {
+      // Đếm Pass/Fail Final
+      if (r.final_result?.toLowerCase() === 'pass') stats.pass++;
+      else stats.fail++;
+
+      // Đếm Self-healing
+      if (r.heal_attempted) {
+        stats.healed_attempt++;
+        if (r.heal_success) stats.healed_pass++;
+        else stats.healed_fail++;
+      }
+    });
+    return stats;
+  }, [reports, reportPagination.total_items]);
+
+  // ====== FETCH REPORT ======
+  const fetchReports = async () => {
+    if (!caseId) return;
+    try {
+      setReportLoading(true);
+      // Gọi API Port 8006
+      const res = await testCaseService.getTestCaseReports(caseId, reportPage, 10);
+      
+      // Dữ liệu trả về: { data: [...], pagination: {...} }
+      const responseData = res.data; 
+      
+      setReports(responseData.data || []);
+      setReportPagination(responseData.pagination || { total_items: 0, total_pages: 1 });
+
+    } catch (err) {
+      console.error("Lỗi tải reports:", err);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  // Gọi fetchReports khi vào trang hoặc đổi trang
+  useEffect(() => {
+    fetchReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId, reportPage]);
+
+  // Helper: Format duration (ms -> seconds)
+  const formatDuration = (ms) => {
+    if (!ms) return "0s";
+    return (ms / 1000).toFixed(2) + "s";
   };
 
   // ====== RUN TEST CASE ======
@@ -560,6 +645,166 @@ export default function TestCaseDetailPage() {
         </div>
       </div>
 
+
+      {/* ===================== TEST REPORTS SECTION (REAL DATA) ===================== */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-semibold text-slate-800">Test Reports</h2>
+          <button onClick={fetchReports} className="text-xs text-primary hover:underline">
+             Refresh
+          </button>
+        </div>
+
+        {/* 1. SUMMARY CARDS (Dùng biến summary đã tính ở trên) */}
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Total Run</span>
+            <span className="text-2xl font-bold text-slate-800">{summary.total}</span>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Pass</span>
+            <span className="text-2xl font-bold text-emerald-500">{summary.pass}</span>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Fail</span>
+            <span className="text-2xl font-bold text-rose-500">{summary.fail}</span>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Healed Attempt</span>
+            <span className="text-2xl font-bold text-amber-500">{summary.healed_attempt}</span>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Healed Pass</span>
+            <span className="text-2xl font-bold text-blue-500">{summary.healed_pass}</span>
+          </div>
+          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
+            <span className="text-xs font-medium text-slate-500">Healed Fail</span>
+            <span className="text-2xl font-bold text-orange-600">{summary.healed_fail}</span>
+          </div>
+        </div>
+
+        {/* 2. EXECUTION HISTORY TABLE (REAL DATA) */}
+        <h3 className="text-sm font-semibold text-slate-800 mb-4">Execution History</h3>
+        
+        <div className="overflow-x-auto rounded-lg border border-slate-100">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3 text-left">Run ID</th>
+                <th className="px-4 py-3 text-center">Raw Result</th>
+                <th className="px-4 py-3 text-center">Final Result</th>
+                <th className="px-4 py-3 text-center">Self-healing</th>
+                <th className="px-4 py-3 text-left">Duration</th>
+                <th className="px-4 py-3 text-left">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {reportLoading ? (
+                 <tr><td colSpan={6} className="text-center py-4 text-slate-500">Đang tải dữ liệu...</td></tr>
+              ) : reports.length === 0 ? (
+                 <tr><td colSpan={6} className="text-center py-4 text-slate-500 italic">Chưa có lịch sử chạy nào.</td></tr>
+              ) : (
+                reports.map((item, idx) => {
+                  // Logic hiển thị
+                  const isPass = item.final_result?.toLowerCase() === "pass";
+                  const finalColor = isPass
+                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100"
+                    : "bg-rose-50 text-rose-500 border border-rose-100";
+                  
+                  // Logic suy luận Raw Result (Vì API không trả về Raw, ta suy luận từ Heal Attempt)
+                  // Nếu có Heal Attempt -> Raw chắc chắn là Fail. Nếu ko -> Raw giống Final.
+                  const rawResult = item.heal_attempted ? "FAIL" : item.final_result?.toUpperCase();
+                  const rawColor = rawResult === "PASS"
+                    ? "bg-emerald-50 text-emerald-600 border border-emerald-100" 
+                    : "bg-rose-50 text-rose-500 border border-rose-100";
+
+                  const rowBg = idx % 2 === 0 ? "bg-white" : "bg-slate-50/50";
+
+                  return (
+                    <tr key={item.run_id || idx} className={`${rowBg} hover:bg-slate-50 transition-colorscursor-pointer`} // Thêm cursor-pointer
+                        onClick={() => handleOpenRunDetail(item)}>
+                      <td className="px-4 py-3 font-medium text-blue-600">
+                        #{item.run_id}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${rawColor}`}>
+                          {rawResult}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${finalColor}`}>
+                          {item.final_result}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                         {item.heal_attempted ? (
+                            item.heal_success ? (
+                                <span className="text-blue-600 font-semibold flex items-center justify-center gap-1">
+                                    <Zap className="h-3 w-3" /> Success
+                                </span>
+                            ) : (
+                                <span className="text-orange-600 font-semibold flex items-center justify-center gap-1">
+                                    <AlertTriangle className="h-3 w-3" /> Failed
+                                </span>
+                            )
+                         ) : (
+                            <span className="text-slate-400">—</span>
+                         )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {formatDuration(item.total_duration_ms)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {formatDate(item.timestamp)}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* 3. PAGINATION (REAL) */}
+        {reportPagination.total_pages > 1 && (
+          <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+             <span>
+                Showing page {reportPage} of {reportPagination.total_pages} ({reportPagination.total_items} items)
+             </span>
+             <div className="flex items-center gap-1">
+                <button 
+                  disabled={reportPage === 1}
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  onClick={() => setReportPage(p => Math.max(1, p - 1))}
+                >
+                  &lt;
+                </button>
+                
+                {/* Hiển thị số trang đơn giản */}
+                {[...Array(reportPagination.total_pages)].slice(0, 5).map((_, i) => (
+                   <button 
+                     key={i}
+                     onClick={() => setReportPage(i + 1)}
+                     className={`h-7 w-7 flex items-center justify-center rounded-md ${
+                        reportPage === i + 1 ? 'bg-[#6425FE] text-white' : 'hover:bg-slate-50 text-slate-600'
+                     }`}
+                   >
+                     {i + 1}
+                   </button>
+                ))}
+
+                <button 
+                  disabled={reportPage === reportPagination.total_pages}
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  onClick={() => setReportPage(p => Math.min(reportPagination.total_pages, p + 1))}
+                >
+                  &gt;
+                </button>
+             </div>
+          </div>
+        )}
+      </div>
+
       {/* POPUP ADD STEP */}
       <AddStepModal
         isOpen={isAddStepOpen}
@@ -595,6 +840,14 @@ export default function TestCaseDetailPage() {
         onClose={() => setIsProactiveOpen(false)}
         onRun={handleConfirmProactive}
       />
+
+      {/* REPORT MODAL  */}
+        <RunDetailModal 
+            isOpen={isDetailModalOpen}
+            onClose={() => setIsDetailModalOpen(false)}
+            runId={selectedRunId}
+            runInfo={selectedRunInfo}
+        />
     </div>
   );
 }

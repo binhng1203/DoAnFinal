@@ -25,6 +25,9 @@ export default function CreateTestCaseModal({
   const [tags, setTags] = useState([]);
   const [author, setAuthor] = useState(""); // Assignee
 
+  const [fullscreenPageName, setFullscreenPageName] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+
   // Reset & Fill Data
   useEffect(() => {
     if (isOpen) {
@@ -44,6 +47,9 @@ export default function CreateTestCaseModal({
         setDescription(testCaseData.description || "");
         setTags(Array.isArray(testCaseData.tags) ? testCaseData.tags : []);
         setAuthor(testCaseData.assignee_id || ""); // Map Assignee ID vào đây
+
+        setFullscreenPageName(testCaseData.fullscreen_page_name || "");
+        setAppVersion(testCaseData.app_version || "");
       } else {
         // --- CREATE MODE ---
         setName("");
@@ -52,6 +58,8 @@ export default function CreateTestCaseModal({
         setDescription("");
         setTags([]);
         setAuthor("");
+        setFullscreenPageName("");
+        setAppVersion("");
       }
     }
   }, [isOpen]);
@@ -83,9 +91,11 @@ export default function CreateTestCaseModal({
         tags: tags,
         assignee_id: author.trim() || null, // Gửi assignee_id
         
-        // Các trường bổ sung (Nếu Edit thì giữ nguyên hoặc hardcode theo yêu cầu)
-        fullscreen_page_name: isEditMode ? testCaseData.fullscreen_page_name : "LoginPage",
-        app_version: isEditMode ? testCaseData.app_version : "1.0.0",
+        // Khi tạo mới, dòng này sẽ không được thêm vào payload -> Backend nhận null/default
+        ...(isEditMode && {
+           fullscreen_page_name: fullscreenPageName.trim() || null,
+           app_version: appVersion.trim() || null,
+        }),
       };
 
       // Gọi hàm từ Cha
@@ -227,6 +237,34 @@ export default function CreateTestCaseModal({
                   disabled={loading}
                 />
               </div>
+
+              {/* --- CHỈ HIỂN THỊ KHI EDIT --- */}
+              {isEditMode && (
+                <div className="grid gap-6 md:grid-cols-2 border-t border-slate-100 pt-4 mt-2">
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-800">Page Name</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. LoginPage"
+                      value={fullscreenPageName}
+                      onChange={(e) => setFullscreenPageName(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#6425FE] focus:ring-2 focus:ring-[#6425FE]/20"
+                      disabled={loading}
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-sm font-medium text-slate-800">App Version</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 1.0.0"
+                      value={appVersion}
+                      onChange={(e) => setAppVersion(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[#6425FE] focus:ring-2 focus:ring-[#6425FE]/20"
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Footer */}
               <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-200 pt-4">

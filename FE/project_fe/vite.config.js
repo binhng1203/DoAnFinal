@@ -58,6 +58,18 @@ export default defineConfig({
         rewrite: (path) => path,
       },
 
+      // ==== THÊM MỚI: PROACTIVE SERVICE (Port 8005) ====
+      "/proactive-service": {
+        target: 'http://localhost:8005', // Server Proactive
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/proactive-service/, '') 
+      },
+
+      '/report-service': {
+        target: 'http://localhost:8006', // Server thật
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/report-service/, '') // Xoá prefix khi gửi sang server
+      }
     },
   },
 });

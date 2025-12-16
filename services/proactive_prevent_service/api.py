@@ -57,4 +57,4 @@ def analyze_endpoint():
         return jsonify({"status": "ERROR", "message": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(host='0.0.0.0', port=8000)
