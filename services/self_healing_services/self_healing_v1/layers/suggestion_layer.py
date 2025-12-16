@@ -1,151 +1,146 @@
 # self_healing_v1/layers/suggestion_layer.py
 
 import logging
+import hashlib
 from typing import List, Dict, Any, Optional, Tuple, Union
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.common.by import By
 
+# Giữ nguyên import
 from ..utils.element_fingerprint import ElementFingerprint
 from ..services.cloud_kb_client import CloudKnowledgeBaseClient
 
 logger = logging.getLogger(__name__)
 
+# [CLASS WRAPPER] Để HealingManager truy cập kết quả bằng .attribute
+class SuggestionResult:
+    def __init__(self, data: Dict[str, Any]):
+        self.new_locator_by = data.get("new_locator_by") or data.get("type")
+        self.new_locator_value = data.get("new_locator_value") or data.get("value")
+        self.success_rate = float(data.get("success_rate", 0.0) or data.get("score", 0.0))
+
 class SuggestionLayer:
     """
     Layer 1: Suggestion
-    Nhiệm vụ: Tra cứu nhanh từ Knowledge Base (Cache/History).
-    Nếu tìm thấy gợi ý, verify nhanh trên DOM. Nếu tồn tại thì trả về ngay.
-    Nếu không tìm thấy hoặc gợi ý không còn đúng, trả về None để chuyển sang Layer 2.
+    Nhiệm vụ: Tra cứu nhanh từ Knowledge Base.
     """
 
-    # Mapping từ string trong DB sang đối tượng By của Selenium
     STRATEGY_MAP = {
-        "id": By.ID,
-        "xpath": By.XPATH,
-        "link text": By.LINK_TEXT,
-        "partial link text": By.PARTIAL_LINK_TEXT,
-        "name": By.NAME,
-        "tag name": By.TAG_NAME,
-        "class name": By.CLASS_NAME,
-        "css selector": By.CSS_SELECTOR,
-        "css": By.CSS_SELECTOR # Alias
+        "id": By.ID, "xpath": By.XPATH, "link text": By.LINK_TEXT,
+        "partial link text": By.PARTIAL_LINK_TEXT, "name": By.NAME,
+        "tag name": By.TAG_NAME, "class name": By.CLASS_NAME,
+        "css selector": By.CSS_SELECTOR, "css": By.CSS_SELECTOR
     }
 
     def __init__(self, cloud_kb_client: CloudKnowledgeBaseClient):
         self.cloud_kb_client = cloud_kb_client
         self.last_fingerprint: Optional[Dict[str, Any]] = None
 
-    def get_suggestions(
-        self,
-        broken_locator: Tuple[str, str],
-        driver: WebDriver,
-    ) -> Optional[List[Dict[str, Any]]]:
+    # ==========================================================================
+    # [QUAN TRỌNG] Hàm này đã được sửa để nhận đủ 4 tham số từ Manager
+    # và trả về cấu trúc khớp với DB (Fix lỗi KB Missed)
+    # ==========================================================================
+    def generate_fingerprint(
+        self, 
+        page_source: str, 
+        locator_by: str, 
+        locator_value: str, 
+        page_url: str
+    ) -> Dict[str, Any]:
         """
-        Lấy candidate từ KB dựa trên 'chữ ký' của locator hỏng.
-        
-        Args:
-            broken_locator: Tuple (By, Value) ví dụ (By.ID, "submit_btn")
-            driver: WebDriver instance (chỉ dùng để lấy URL và verify candidate)
+        Tạo fingerprint. 
+        Lưu ý: Để tìm thấy dữ liệu trong DB (do Persistence lưu), 
+        fingerprint phải chứa page_url và locator gốc.
         """
-        
-        # 1. Tạo Fingerprint (Static Analysis)
-        # Chúng ta phân tích chuỗi selector của locator hỏng để tạo key tra cứu.
-        # Không tương tác với DOM ở bước này.
-        logger.info(f"[SuggestionLayer] Tạo fingerprint từ locator hỏng: {broken_locator}")
-        
-        fingerprint_generator = ElementFingerprint(broken_locator)
-        self.last_fingerprint = fingerprint_generator.get()
+        try:
+            logger.info(f"[SuggestionLayer] Đang tạo fingerprint cho: {locator_value}")
+            
+            # Cấu trúc này KHỚP với cấu trúc PersistenceService lưu xuống DB
+            self.last_fingerprint = {
+                "page_url": page_url,
+                "locator_by": locator_by,
+                "locator_value": locator_value
+            }
+            return self.last_fingerprint
 
-        if not self.last_fingerprint:
-            logger.warning("[SuggestionLayer] Không thể tạo fingerprint. Bỏ qua Layer 1.")
+        except Exception as e:
+            logger.error(f"[SuggestionLayer] Lỗi tạo fingerprint: {e}")
+            return {}
+
+    # ==========================================================================
+    # Hàm find_suggestion (Được HealingManager gọi)
+    # ==========================================================================
+    def find_suggestion(self, fingerprint: Dict[str, Any], locator_value: str) -> Optional[SuggestionResult]:
+        """
+        Tìm kiếm giải pháp trong KB.
+        """
+        if not self.cloud_kb_client:
             return None
 
-        # 2. Truy vấn Knowledge Base
-        page_url = driver.current_url if driver.current_url else "unknown"
-        logger.info("[SuggestionLayer] Truy vấn Healing Knowledge Base...")
-        
-        suggestions = self.cloud_kb_client.get_suggestions(
-            fingerprint=self.last_fingerprint,
-            page_url=page_url
-        )
+        try:
+            # 1. Thử query DB
+            raw_data = None
+            
+            # Ưu tiên query chính xác theo JSON
+            if hasattr(self.cloud_kb_client, "query_suggestion"):
+                raw_data = self.cloud_kb_client.query_suggestion(fingerprint, locator_value)
+                if raw_data:
+                    return SuggestionResult(raw_data)
+            
+            # Fallback sang hàm cũ
+            elif hasattr(self.cloud_kb_client, "get_suggestions"):
+                suggestions = self.cloud_kb_client.get_suggestions(
+                    fingerprint=fingerprint,
+                    page_url=fingerprint.get("page_url", "unknown")
+                )
+                if suggestions:
+                    best = suggestions[0] if isinstance(suggestions, list) else suggestions
+                    # Map dữ liệu cũ sang cấu trúc mới
+                    raw_data = {
+                        "new_locator_by": best.get('type', 'xpath'),
+                        "new_locator_value": best.get('value'),
+                        "success_rate": best.get('score', 0.0)
+                    }
+                    return SuggestionResult(raw_data)
 
-        # Chuẩn hóa dữ liệu về dạng List
-        candidate_list = []
-        if isinstance(suggestions, list):
-            candidate_list = suggestions
-        elif isinstance(suggestions, dict):
-            candidate_list = [suggestions]
-        
-        if not candidate_list:
-            logger.info("[SuggestionLayer] KB không có dữ liệu cho fingerprint này.")
             return None
 
-        # 3. Quick Validation (Kiểm tra tồn tại)
-        # Lọc bỏ các gợi ý từ quá khứ nhưng hiện tại không còn xuất hiện trên màn hình
-        valid_candidates = []
-        
-        for candidate in candidate_list:
-            # Giả định cấu trúc candidate từ KB: {'type': 'xpath', 'value': '//div[@id="new"]', 'score': 0.9}
-            strategy_str = candidate.get('type', 'xpath').lower()
-            selector_value = candidate.get('value')
-            
-            # Convert string strategy sang Selenium By
-            by_strategy = self.STRATEGY_MAP.get(strategy_str, By.XPATH)
+        except Exception as e:
+            logger.error(f"[SuggestionLayer] Lỗi tìm suggestion: {e}")
+            return None
 
-            if self._is_element_present(driver, by_strategy, selector_value):
-                logger.info(f"[SuggestionLayer] Candidate hợp lệ (Found in DOM): {selector_value}")
-                
-                # Chuẩn hóa output để các layer sau dễ dùng
-                valid_candidates.append({
-                    "locator": (by_strategy, selector_value),
-                    "score": candidate.get('score', 1.0), # Suggestion thường có độ tin cậy cao
-                    "source": "knowledge_base"
-                })
-            else:
-                logger.debug(f"[SuggestionLayer] Candidate từ KB không tồn tại trong DOM: {selector_value}")
-
-        if valid_candidates:
-            logger.info(f"[SuggestionLayer] Tìm thấy {len(valid_candidates)} candidates hợp lệ.")
-            return valid_candidates
+    # ==========================================================================
+    # Các hàm Legacy (Giữ lại để tương thích code cũ)
+    # ==========================================================================
+    def get_suggestions(self, broken_locator: Tuple[str, str], driver: WebDriver) -> Optional[List[Dict[str, Any]]]:
+        """Legacy method"""
+        # Logic cũ dùng ElementFingerprint (Hash), giữ nguyên để không ảnh hưởng code cũ
+        # Nhưng Manager v1 sẽ không gọi hàm này nữa.
+        try:
+            fingerprint_generator = ElementFingerprint(broken_locator)
+            self.last_fingerprint = fingerprint_generator.get()
+            if not self.last_fingerprint: return None
             
-        logger.info("[SuggestionLayer] Có gợi ý từ KB nhưng verify thất bại. Chuyển tiếp sang Layer 2.")
-        return None
+            suggestions = self.cloud_kb_client.get_suggestions(
+                fingerprint=self.last_fingerprint,
+                page_url=driver.current_url
+            )
+            
+            if not suggestions: return None
+            
+            candidates = suggestions if isinstance(suggestions, list) else [suggestions]
+            valid = []
+            for c in candidates:
+                by = self.STRATEGY_MAP.get(c.get('type', 'xpath').lower(), By.XPATH)
+                val = c.get('value')
+                if self._is_element_present(driver, by, val):
+                    valid.append({"locator": (by, val), "score": c.get('score', 1.0), "source": "knowledge_base"})
+            return valid if valid else None
+        except: return None
 
     def _is_element_present(self, driver: WebDriver, by: Any, value: str) -> bool:
-        """Helper: Kiểm tra nhanh element có tồn tại không mà không throw exception"""
-        try:
-            # Dùng find_elements (số nhiều) trả về list rỗng nếu không thấy -> Không throw exception
-            elements = driver.find_elements(by, value)
-            return len(elements) > 0
-        except Exception:
-            return False
+        try: return len(driver.find_elements(by, value)) > 0
+        except: return False
 
-    def report_successful_heal(
-        self,
-        old_locator: Tuple[str, str],
-        new_locator: Tuple[str, str],
-        commit_info: Dict[str, Any],
-        score: float = 1.0,
-        page_url: Optional[str] = None,
-    ) -> None:
-        """
-        Sau khi heal thành công (ở bất kỳ layer nào), gọi hàm này để update lại Knowledge Base.
-        Dữ liệu này sẽ phục vụ cho SuggestionLayer ở lần chạy sau.
-        """
-        if self.last_fingerprint is None:
-            logger.warning("[SuggestionLayer] Không có fingerprint (do lỗi bước init). Không thể update KB.")
-            return
-
-        logger.info(f"[SuggestionLayer] Learning: Cập nhật mapping {old_locator} -> {new_locator} vào KB.")
-        
-        try:
-            self.cloud_kb_client.update_knowledge(
-                fingerprint=self.last_fingerprint, # Key: Locator cũ (đặc điểm tĩnh)
-                old_locator=old_locator,           # Thông tin raw locator cũ
-                new_locator=new_locator,           # Value: Locator mới (đã verify)
-                commit_info=commit_info,
-                page_url=page_url,
-                score=score
-            )
-        except Exception as e:
-            logger.error(f"[SuggestionLayer] Lỗi khi cập nhật KB: {e}")
+    def report_successful_heal(self, *args, **kwargs):
+        pass

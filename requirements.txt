@@ -25,7 +25,7 @@ beautifulsoup4>=4.12.0
 # Testing & reporting
 pytest==8.4.2
 pytest-json-report==1.5.0
-
+lxml
 
 # UI automation (cho test thực thi)
 selenium==4.24.0

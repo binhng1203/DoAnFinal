@@ -171,7 +171,7 @@ class ValidationLayer:
             return "ERROR"
 
     # =========================================================
-    # 4. FULLSCREEN VALIDATION (Fixed OpenCV Error)
+    # 4. FULLSCREEN VALIDATION (Fixed OpenCV Error & Added Metrics)
     # =========================================================
 
     def _fullscreen_baseline_path(self, page_name: str) -> Path:
@@ -184,12 +184,18 @@ class ValidationLayer:
         return self.fullscreen_baseline_dir / f"{self._safe_name(page_name)}_DIFF.png"
 
     def validate_fullscreen(self, driver, page_name: str) -> str:
+        # [FIX 1] Đảm bảo thư mục tồn tại để tránh lỗi crash khi lưu ảnh
+        if not self.fullscreen_baseline_dir.exists():
+            self.fullscreen_baseline_dir.mkdir(parents=True, exist_ok=True)
+
         baseline_path = self._fullscreen_baseline_path(page_name)
         current_path = self._fullscreen_current_path(page_name)
         diff_path = self._fullscreen_diff_path(page_name)
 
+        # Khởi tạo result
         self._last_fullscreen_result = {
-            "page_name": page_name, "status": "ERROR", "metrics": {},
+            "page_name": page_name, "status": "ERROR", 
+            "metrics": {}, # Metrics sẽ được điền ở cuối hàm
             "baseline_path": None, "current_path": None, "diff_path": None
         }
 
@@ -213,6 +219,10 @@ class ValidationLayer:
                 with open(baseline_path, "wb") as f:
                     f.write(png)
                 logger.info(f"[ValidationLayer] 🟢 ĐÃ TẠO fullscreen baseline: {baseline_path.name}")
+                
+                # Cập nhật ngay trạng thái cho trường hợp tạo mới
+                self._last_fullscreen_result["baseline_path"] = str(baseline_path)
+                self._last_fullscreen_result["status"] = "NEW_BASELINE"
                 return "NEW_BASELINE"
             except Exception:
                 return "ERROR"
@@ -227,14 +237,14 @@ class ValidationLayer:
             return "ERROR"
 
         # --- SỬA LỖI OPENCV SIZE MISMATCH TẠI ĐÂY ---
-        # Kiểm tra nếu kích thước khác nhau thì resize ảnh hiện tại theo baseline
         if baseline_np.shape != img_np.shape:
             h, w = baseline_np.shape[:2]
-            logger.warning(f"[ValidationLayer] Kích thước ảnh khác nhau (Baseline: {w}x{h} vs Current: {img_np.shape[1]}x{img_np.shape[0]}). Đang resize...")
+            logger.warning(f"[ValidationLayer] Resize: {img_np.shape} -> {baseline_np.shape}")
             img_np = cv2.resize(img_np, (w, h))
         # ---------------------------------------------
 
         # 4. ORB Matching
+        # 
         total_matches, good_matches = 0, 0
         try:
             orb = cv2.ORB_create()
@@ -250,6 +260,7 @@ class ValidationLayer:
             logger.error(f"[ValidationLayer] Lỗi ORB: {e}")
 
         # 5. Edge Diff
+        # 
         edge_diff_ratio = 1.0
         try:
             gray1 = cv2.cvtColor(baseline_np, cv2.COLOR_BGR2GRAY)
@@ -279,9 +290,16 @@ class ValidationLayer:
         elif edge_diff_ratio <= self.full_edge_soft_thr:
             status = "DRIFT"
         
+        # [FIX 2 - QUAN TRỌNG] Cập nhật metrics vào biến kết quả để Manager lấy được
+        self._last_fullscreen_result["status"] = status
+        self._last_fullscreen_result["metrics"] = {
+            "good_matches": good_matches,
+            "edge_diff": edge_diff_ratio,
+            "total_matches": total_matches
+        }
+        
         logger.info(f"[ValidationLayer] Fullscreen Result: {status} (Good Matches: {good_matches}, Edge Diff: {edge_diff_ratio:.5f})")
         return status
-
     # ... (Helpers giữ nguyên) ...
     def _compute_ssim(self, img1: Image.Image, img2: Image.Image) -> float:
         if img1.size != img2.size:

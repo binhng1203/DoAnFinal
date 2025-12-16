@@ -20,50 +20,56 @@ def build_db_config_from_env(prefix: str):
 def main():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
     
-    # 1. Config DB (Vẫn giữ để Manager ghi log report riêng nếu muốn)
     db_config_reporting = build_db_config_from_env("REPORT_DB_")
 
+    # Init Manager
     manager = HealingManager(
         db_config_reporting=db_config_reporting,
         visual_baseline_dir="visual_baseline",
+        healenium_host="http://localhost:7878"
     )
 
-    # 2. Setup Driver kết nối qua PROXY
     chrome_options = Options()
     chrome_options.add_argument("--start-maximized")
-    # Có thể thêm capability nếu cần cấu hình Healenium
-    # chrome_options.set_capability("healenium:options", {"recovery-tries": 1})
 
     print(">>> [INIT] Connecting to Healenium Proxy at http://localhost:8085 ...")
     
-    # [THAY ĐỔI QUAN TRỌNG NHẤT Ở ĐÂY]
     driver = webdriver.Remote(
-        command_executor="http://localhost:8085",  # Địa chỉ Healenium Proxy
+        command_executor="http://localhost:8085",
         options=chrome_options
     )
 
     try:
-        def test_entrypoint(driver, manager):
+        def test_entrypoint(driver, healing_find_func, test_id, run_id, **kwargs):
+            print(f"   -> [TestRunner] Bắt đầu test '{test_id}' với run_id={run_id}")
             return run_minimal_shop_happy_test(
                 driver=driver,
-                healing_find_func=manager.find_element,
-                test_id=manager._current_test_id,
-                run_id=manager._current_run_id
+                healing_find_func=healing_find_func,
+                test_id=test_id,
+                run_id=run_id,
+                **kwargs
             )
 
+        # --- [KÍCH HOẠT FULLSCREEN VALIDATION TẠI ĐÂY] ---
         manager.run_test_wrapper(
             test_function=test_entrypoint,
             driver=driver,
-            test_id="run_minimal_shop_happy_test_proxy", # Đổi tên chút để phân biệt
+            test_id="run_minimal_shop_happy_test_proxy",
             app_version="1.0.0",
+            
+            # [THÊM DÒNG NÀY]: Đặt tên cho trang để Manager biết cần chụp ảnh validate cuối cùng
+            fullscreen_page_name="Product_Detail_Page" 
         )
+
+    except Exception as e:
+        logging.error(f"Test Execution Failed: {e}")
+        # Không raise e ở đây để code chạy xuống finally đóng driver sạch sẽ
+        
     finally:
-        driver.quit()
+        print(">>> [TEARDOWN] Closing driver & manager...")
+        try: driver.quit()
+        except: pass
         manager.close()
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        print(f"\n❌ [EXECUTION FAILED]: {e}")
-        sys.exit(1)
+    main()

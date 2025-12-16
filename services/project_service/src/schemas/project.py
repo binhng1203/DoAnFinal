@@ -3,7 +3,7 @@ from marshmallow import fields, validate
 
 # Schema cho Project
 class ProjectSchema(ma.Schema):
-    project_id = fields.String(dump_only=True, 
+    project_id = fields.String(required=True, 
         validate=validate.Regexp(r'^[A-Z0-9]{8}$', error="Project ID must be 8 alphanumeric characters (A-Z, 0-9)")
     )
     name = fields.String(required=True, validate=validate.Length(min=1))
