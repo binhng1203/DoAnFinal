@@ -1,4 +1,6 @@
 # self_healing_v1/layers/suggestion_layer.py
+import json
+from datetime import datetime
 
 import logging
 import hashlib
@@ -35,7 +37,7 @@ class SuggestionLayer:
     def __init__(self, cloud_kb_client: CloudKnowledgeBaseClient):
         self.cloud_kb_client = cloud_kb_client
         self.last_fingerprint: Optional[Dict[str, Any]] = None
-
+        logger.info(f"[SuggestionLayer] Initialized (Enabled: {self.enabled})")
     # ==========================================================================
     # [QUAN TRỌNG] Hàm này đã được sửa để nhận đủ 4 tham số từ Manager
     # và trả về cấu trúc khớp với DB (Fix lỗi KB Missed)
@@ -70,45 +72,21 @@ class SuggestionLayer:
     # ==========================================================================
     # Hàm find_suggestion (Được HealingManager gọi)
     # ==========================================================================
-    def find_suggestion(self, fingerprint: Dict[str, Any], locator_value: str) -> Optional[SuggestionResult]:
+    @property
+    def enabled(self):
+        """Kiểm tra trạng thái online của Client một cách an toàn"""
+        return getattr(self.cloud_kb_client, 'enabled', False)
+
+    def find_suggestion(self, fingerprint, locator_value):
         """
-        Tìm kiếm giải pháp trong KB.
+        [LAYER 1] Điểm tiếp nhận từ Manager.
         """
-        if not self.cloud_kb_client:
+        # Sửa lỗi AttributeError: Kiểm tra thông qua property enabled
+        if not self.enabled:
             return None
-
-        try:
-            # 1. Thử query DB
-            raw_data = None
             
-            # Ưu tiên query chính xác theo JSON
-            if hasattr(self.cloud_kb_client, "query_suggestion"):
-                raw_data = self.cloud_kb_client.query_suggestion(fingerprint, locator_value)
-                if raw_data:
-                    return SuggestionResult(raw_data)
-            
-            # Fallback sang hàm cũ
-            elif hasattr(self.cloud_kb_client, "get_suggestions"):
-                suggestions = self.cloud_kb_client.get_suggestions(
-                    fingerprint=fingerprint,
-                    page_url=fingerprint.get("page_url", "unknown")
-                )
-                if suggestions:
-                    best = suggestions[0] if isinstance(suggestions, list) else suggestions
-                    # Map dữ liệu cũ sang cấu trúc mới
-                    raw_data = {
-                        "new_locator_by": best.get('type', 'xpath'),
-                        "new_locator_value": best.get('value'),
-                        "success_rate": best.get('score', 0.0)
-                    }
-                    return SuggestionResult(raw_data)
-
-            return None
-
-        except Exception as e:
-            logger.error(f"[SuggestionLayer] Lỗi tìm suggestion: {e}")
-            return None
-
+        # Gọi xuống Client để lấy dữ liệu
+        return self.cloud_kb_client.find_suggestion(fingerprint, locator_value)
     # ==========================================================================
     # Các hàm Legacy (Giữ lại để tương thích code cũ)
     # ==========================================================================
@@ -144,3 +122,58 @@ class SuggestionLayer:
 
     def report_successful_heal(self, *args, **kwargs):
         pass
+    def report_successful_heal(
+        self, 
+        broken_locator: Tuple[str, str], 
+        healed_locator: Tuple[str, str], 
+        page_url: str,
+        score: float,
+        engine_name: str = "lcs", 
+        repair_time_ms: int = 0
+    ):
+        """
+        Ghi nhận kết quả healing khớp 100% với bảng public.healing_knowledge.
+        """
+        if not self.cloud_kb_client or not self.cloud_kb_client.enabled:
+            return
+
+        try:
+            old_by, old_val = broken_locator
+            new_by, new_val = healed_locator
+
+            # 1. Tạo Fingerprint (Sử dụng cấu trúc đồng bộ với Manager và Client)
+            fingerprint_dict = {
+                "page_url": page_url,
+                "locator_by": old_by,
+                "locator_value": old_val
+            }
+            
+            # Tạo Hash phục vụ cột fingerprint_hash (Variant A)
+            fp_json = json.dumps(fingerprint_dict, sort_keys=True)
+            fp_hash = hashlib.sha256(fp_json.encode()).hexdigest()
+
+            # 2. Chuẩn bị payload khớp TÊN CỘT trong DB của bạn
+            # Chú ý: Sử dụng 'last_updated' thay vì 'updated_at'
+            payload = {
+                "fingerprint_hash": fp_hash,
+                "fingerprint_json": fingerprint_dict, # Để client bọc Json() sau
+                "old_locator_by": old_by,
+                "old_locator_value": old_val,
+                "new_locator_by": new_by,
+                "new_locator_value": new_val,
+                "last_score": score,
+                "last_engine": engine_name,
+                "avg_repair_ms": repair_time_ms,
+                "source_type": "self_healing_v1",
+                "last_updated": datetime.now().isoformat(),
+                "project_id": None # Sẽ được resolve bên trong Client
+            }
+
+            logger.info(f"[SuggestionLayer] 🧠 Đang lưu tri thức mới: {old_val} -> {new_val}")
+            
+            # 3. Gửi sang Client để thực hiện INSERT/UPDATE
+            if hasattr(self.cloud_kb_client, "save_healing_result"):
+                self.cloud_kb_client.save_healing_result(payload)
+                
+        except Exception as e:
+            logger.error(f"[SuggestionLayer] Lỗi chuẩn bị dữ liệu KB: {e}")

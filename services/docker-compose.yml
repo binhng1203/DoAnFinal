@@ -232,7 +232,7 @@ services:
     environment:
       - RECOVERY_TRIES=1
       - SCORE_CAP=.6
-      - HEAL_ENABLED=true
+      - HEAL_ENABLED=false
       - SELENIUM_SERVER_URL=http://selenium-hub:4444/wd/hub
       - HEALENIUM_SERVER_URL=http://healenium:7878
       - HEALENIUM_SERVICE=http://healenium:7878

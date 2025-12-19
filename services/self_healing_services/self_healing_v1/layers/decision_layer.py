@@ -76,28 +76,47 @@ class DecisionLayer:
     # =========================================================
     # 2. ADAPTER METHOD (Cầu nối cho HealingManager v1)
     # =========================================================
-    def evaluate(self, similarity_score: float, stability_score: float = 0.5, context_match: float = 1.0) -> Dict[str, float]:
+    # =========================================================
+    # 2. ADAPTER METHOD (Cầu nối cho HealingManager v1)
+    # =========================================================
+    def evaluate(self, similarity_score: float, locator_value: str = None, test_priority: str = "medium") -> Dict[str, float]:
         """
-        API chính được HealingManager gọi.
-        Chuyển đổi tham số từ Manager -> Input cho Fuzzy Logic.
+        Đánh giá rủi ro dựa trên dữ liệu lịch sử thực tế từ DB.
         """
-        # 1. Chuẩn bị Input cho Fuzzy
-        instability = 1.0 - stability_score
-        failure_freq = instability  # Tạm thời coi tần suất lỗi tương đương độ mất ổn định
-        priority_val = 0.5          # Default priority
+        # 1. Lấy dữ liệu instability từ Database thực tế
+        instability_rate = 0.0
+        if self.persistence_service and locator_value:
+            try:
+                # Bạn cần thêm hàm get_locator_instability vào PersistenceService
+                instability_rate = self.persistence_service.get_locator_instability(locator_value)
+                logger.info(f"[DecisionLayer] DB Instability for '{locator_value}': {instability_rate}%")
+            except Exception as e:
+                logger.warning(f"[DecisionLayer] Không lấy được instability từ DB: {e}")
 
-        # 2. Gọi hàm tính toán nội bộ (để tận dụng logic Fuzzy)
-        risk_score = self._compute_fuzzy_risk(priority_val, instability, failure_freq)
+        # 2. Chuẩn hóa Input cho Fuzzy (quy về khoảng [0, 1])
+        # Càng mất ổn định -> instability càng tiến về 1.0
+        instability_input = self._clamp01(instability_rate / 100.0) 
+        
+        # Priority mapping (Trọng yếu của test case)
+        priority_val = self.priority_mapping.get(test_priority.lower(), 0.5)
 
-        # 3. Tính Threshold
-        threshold = self._calculate_adaptive_threshold(risk_score)
-        final_threshold = 0.0  # <--- Luôn chấp nhận mọi ứng viên
+        # 3. Gọi Fuzzy Logic tính toán Risk
+        # failure_freq tạm thời lấy bằng instability_input hoặc 0.5 nếu mới chạy lần đầu
+        risk_score = self._compute_fuzzy_risk(
+            priority=priority_val, 
+            instability=instability_input, 
+            failure_freq=instability_input 
+        )
 
+        # 4. Tính Adaptive Threshold (Ngưỡng động)
+        # Công thức: base + (max - base) * risk_score
+        adaptive_threshold = self._calculate_adaptive_threshold(risk_score)
+        final_threshold = 0.0
         return {
             "risk_score": round(risk_score, 2),
-            "threshold": final_threshold 
+            "threshold": final_threshold,
+            "instability_rate": instability_rate
         }
-
     # =========================================================
     # 3. RISK CALCULATION (FUZZY LOGIC INTERNAL)
     # =========================================================

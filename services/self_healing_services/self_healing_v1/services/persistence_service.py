@@ -343,47 +343,80 @@ class PersistenceService:
         except Exception as e:
             logger.error(f"[Persistence] _upsert_kb lỗi: {e}")
             if self.conn: self.conn.rollback()
-    # ----------------------------------------------------------------------
-    # 3) locator_instability
-    # ----------------------------------------------------------------------
     def _update_locator_instability(self, locator_old: str, success: bool, project_id: str | None = None):
-        if not self.conn: return
-
-        succ_inc = 1 if success else 0
-        fail_inc = 0 if success else 1
-        
-        sql = f"""
-            INSERT INTO {LOCATOR_INSTABILITY_TABLE} (
-                project_id, locator_old, total_failures, total_success,
-                instability_rate, last_failed_at, last_success_at
-            )
-            VALUES (%s, %s, %s, %s, 0.00, %s, %s)
-            ON CONFLICT (locator_old) -- Sửa: Constraint là UNIQUE(locator_old)
-            DO UPDATE SET
-                total_failures = {LOCATOR_INSTABILITY_TABLE}.total_failures + %s,
-                total_success  = {LOCATOR_INSTABILITY_TABLE}.total_success  + %s,
-                last_failed_at = CASE WHEN %s = 1 THEN NOW() ELSE {LOCATOR_INSTABILITY_TABLE}.last_failed_at END,
-                last_success_at= CASE WHEN %s = 1 THEN NOW() ELSE {LOCATOR_INSTABILITY_TABLE}.last_success_at END,
-                instability_rate = ROUND(
-                    ({LOCATOR_INSTABILITY_TABLE}.total_failures + %s)::NUMERIC * 100.0
-                    / NULLIF(({LOCATOR_INSTABILITY_TABLE}.total_failures + %s) + ({LOCATOR_INSTABILITY_TABLE}.total_success + %s), 0),
-                    2
-                ),
-                updated_at = NOW();
         """
+        Cập nhật thống kê độ mất ổn định của locator.
+        Sử dụng cơ chế UPSERT để tự động tính toán instability_rate.
+        """
+        if not self.conn:
+            logger.warning("[Persistence] Không có kết nối DB, bỏ qua update instability.")
+            return
+
+        # 1. Chuẩn bị dữ liệu tăng thêm
+        fail_inc = 0 if success else 1
+        succ_inc = 1 if success else 0
+        now = datetime.now()
+
+        # 2. Câu lệnh SQL UPSERT
+        # Chúng ta tính toán instability_rate trực tiếp trong DB để đảm bảo tính chính xác
+        sql = f"""
+            INSERT INTO custom_analytics.locator_instability (
+                project_id, locator_old, total_failures, total_success,
+                instability_rate, last_failed_at, last_success_at, updated_at
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            ON CONFLICT (locator_old) 
+            DO UPDATE SET
+                total_failures = locator_instability.total_failures + EXCLUDED.total_failures,
+                total_success  = locator_instability.total_success  + EXCLUDED.total_success,
+                last_failed_at = COALESCE(EXCLUDED.last_failed_at, locator_instability.last_failed_at),
+                last_success_at = COALESCE(EXCLUDED.last_success_at, locator_instability.last_success_at),
+                updated_at = NOW(),
+                -- Công thức tính Rate: (Fail / Total) * 100
+                instability_rate = ROUND(
+                    (CAST(locator_instability.total_failures + EXCLUDED.total_failures AS NUMERIC) * 100.0) / 
+                    NULLIF(
+                        (locator_instability.total_failures + EXCLUDED.total_failures) + 
+                        (locator_instability.total_success + EXCLUDED.total_success), 0
+                    ), 2
+                );
+        """
+
+        # 3. Chuẩn bị tuple tham số (Khớp 100% với số dấu %s trong phần VALUES)
+        # Các giá trị trong EXCLUDED sẽ được lấy từ phần VALUES này
+        initial_rate = 0.0 if success else 100.0
         params = (
-            project_id, locator_old, fail_inc, succ_inc,
-            self._now_utc() if fail_inc else None, self._now_utc() if succ_inc else None,
-            fail_inc, succ_inc, fail_inc, succ_inc,
-            fail_inc, fail_inc, succ_inc
+            project_id or "default_project",
+            locator_old,
+            fail_inc,
+            succ_inc,
+            initial_rate,
+            now if not success else None, # last_failed_at
+            now if success else None      # last_success_at
         )
+
         try:
             with self.conn.cursor() as cur:
                 cur.execute(sql, params)
             self.conn.commit()
+            logger.debug(f"[Persistence] Updated instability for: {locator_old}")
         except Exception as e:
-            logger.error(f"[Persistence] _update_locator_instability lỗi: {e}")
             if self.conn: self.conn.rollback()
+            logger.error(f"[Persistence] Lỗi cập nhật locator_instability: {e}")
+
+    def get_locator_instability(self, locator_value: str) -> float:
+        """Lấy tỷ lệ mất ổn định của locator từ DB."""
+        if not self.conn: return 0.0
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT instability_rate FROM custom_analytics.locator_instability WHERE locator_old = %s",
+                    (locator_value,)
+                )
+                row = cur.fetchone()
+                return float(row[0]) if row else 0.0
+        except:
+            return 0.0
     # ----------------------------------------------------------------------
     # 4) heal_event insert (Đã sửa để khớp schema DB và thêm logic nghiệp vụ)
     # ----------------------------------------------------------------------

@@ -5,6 +5,8 @@ import re
 from datetime import datetime, timezone  # [SỬA] Thêm timezone
 from typing import Optional, Dict, Any, Callable, List, Tuple
 import difflib
+        
+from urllib.parse import urlparse
 
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.remote.webelement import WebElement
@@ -28,7 +30,6 @@ from .services.persistence_service import PersistenceService
 logger = logging.getLogger(__name__)
 
 class HealingManager:
-
     def __init__(
         self,
         db_config_reporting: Optional[Dict[str, Any]] = None,
@@ -39,34 +40,44 @@ class HealingManager:
     ):
         logger.info("[HealingManager] Initializing...")
 
-        if db_config_reporting is None:
-            db_config_reporting = {
-                "host": "localhost", "port": 5432, "database": "final",
-                "user": "postgres", "password": "postgres",
-            }
-        if db_config_kb is None:
-            db_config_kb = {
-                "host": "localhost", "port": 5432, "database": "final",
-                "user": "postgres", "password": "postgres",
-            }
+        # 1. Đồng bộ hóa Key 'dbname' để tránh lỗi chuyển đổi
+        default_config = {
+            "host": "localhost", "port": 5432, "dbname": "final",
+            "user": "postgres", "password": "postgres",
+        }
+        
+        db_config_reporting = db_config_reporting or default_config
+        db_config_kb = db_config_kb or default_config
 
         self.driver: Optional[WebDriver] = None
         self.context = HealingContext()
 
+        # 2. Khởi tạo Persistence Service
         self.persistence_service: Optional[PersistenceService] = None
         try:
             self.persistence_service = PersistenceService(db_config_reporting)
-        except Exception:
-            logger.error("[HealingManager] Persistence init failed", exc_info=True)
+        except Exception as e:
+            logger.error(f"[HealingManager] Persistence init failed: {e}")
 
+        # 3. Khởi tạo KB System (Đoạn quan trọng nhất)
         self.kb_client: Optional[CloudKnowledgeBaseClient] = None
         self.suggestion_layer: Optional[SuggestionLayer] = None
         try:
+            # Khởi tạo Client
             self.kb_client = CloudKnowledgeBaseClient(db_config_kb)
-            self.suggestion_layer = SuggestionLayer(self.kb_client)
-        except Exception:
-            logger.warning("[HealingManager] KB init failed (Offline Mode)")
+            
+            # Chỉ khi Client thực sự Online mới khởi tạo Layer tiếp theo
+            if self.kb_client and self.kb_client.enabled:
+                self.suggestion_layer = SuggestionLayer(self.kb_client)
+                logger.info("[HealingManager] KB System is fully ONLINE")
+            else:
+                logger.warning("[HealingManager] KB Client connected but is not ENABLED")
+                
+        except Exception as e:
+            # Sửa đổi quan trọng: In ra lỗi thực tế (e) thay vì chỉ báo Offline chung chung
+            logger.warning(f"[HealingManager] KB init failed (Offline Mode). Error: {e}")
 
+        # 4. Khởi tạo các Layer còn lại
         self.healing_layer = HealingLayer() 
         if hasattr(self.healing_layer, "healenium_host"):
             self.healing_layer.healenium_host = healenium_host
@@ -76,6 +87,14 @@ class HealingManager:
 
         logger.info("[HealingManager] Ready")
 
+    def _sanitize_selector(self, by: str, value: str) -> str:
+        """Escape dấu hai chấm cho Tailwind CSS trong CSS Selector"""
+        if (by == By.CSS_SELECTOR or by == "css selector") and ":" in value:
+            # Nếu chưa có dấu escape (\:) thì mới thêm vào
+            if "\\:" not in value:
+                return value.replace(":", "\\:")
+        return value
+    
     def get_healing_find_function(self, driver: WebDriver) -> Callable:
         def wrapped_find(by: str, value: str, element_name: Optional[str] = None, **kwargs):
             if self.driver != driver:
@@ -166,6 +185,7 @@ class HealingManager:
                 self.context.test_context.update(kwargs["test_context"])
         
         self.context.reset_element_context(element_name)
+        value = self._sanitize_selector(by, value)
 
         try:
             element = WebDriverWait(self.driver, timeout).until(
@@ -182,10 +202,18 @@ class HealingManager:
 
     def _perform_healing(self, by: str, value: str) -> WebElement:
         context = self.context
-        context.start_timer()
+        context.start_ts = time.perf_counter() # Bắt đầu đo thời gian
         context.driver = self.driver
         context.broken_locator = (by, value)
         
+        # Sử dụng hasattr để kiểm tra hoặc gán thẳng nếu chưa có
+        if not hasattr(context, 'project_id') or not context.project_id:
+            try:
+                from urllib.parse import urlparse
+                context.project_id = urlparse(self.driver.current_url).netloc
+            except Exception:
+                context.project_id = "default_project"
+
         def get_lcs_score(s1, s2):
             if not s1 or not s2: return 0.0
             return difflib.SequenceMatcher(None, str(s1), str(s2)).ratio()
@@ -223,28 +251,37 @@ class HealingManager:
             if self.suggestion_layer:
                 suggestion = self.suggestion_layer.find_suggestion(fingerprint, value)
                 if suggestion:
-                    logger.info(f"[Healing] ✅ Found in KB (Success Rate: {suggestion.success_rate}%)")
+                    # SỬA TẠI ĐÂY: Dùng ngoặc vuông ['...']
+                    rate = suggestion.get('success_rate', 0) if isinstance(suggestion, dict) else suggestion['success_rate']
+                    logger.info(f"[Healing] ✅ Found in KB (Success Rate: {rate}%)")
+                    
                     try:
-                        if suggestion.new_locator_by == "xpath":
-                            candidate_element = self.driver.find_element(By.XPATH, suggestion.new_locator_value)
-                        elif suggestion.new_locator_by == "css selector":
-                            candidate_element = self.driver.find_element(By.CSS_SELECTOR, suggestion.new_locator_value)
+                        s_by = suggestion['new_locator_by']
+                        s_val = suggestion['new_locator_value']
+                        
+                        s_val_clean = self._sanitize_selector(s_by, s_val)
+                        by_type = By.XPATH if s_by.lower() == "xpath" else By.CSS_SELECTOR
+                        
+                        candidate_element = self.driver.find_element(by_type, s_val_clean)
                         
                         if candidate_element:
-                            context.chosen_locator = (suggestion.new_locator_by, suggestion.new_locator_value)
+                            context.chosen_locator = (s_by, s_val_clean)
                             context.source_of_chosen = "KB"
-                            context.raw_score = 0.95
-                    except Exception:
-                        logger.warning("[Healing] KB suggestion found but element not present.")
-
+                            context.raw_score = float(suggestion.get('last_score', 0.95))
+                            logger.info(f"[Healing] ✅ KB Match Successful with: {s_val_clean}")
+                    except Exception as e:
+                        logger.warning(f"[Healing] KB element not present: {e}")
             # LAYER 2: LCS ANALYSIS
             if not candidate_element:
                 logger.info("[Healing] 📉 KB missed. Starting LCS Analysis...")
                 
                 baseline_data = None
                 if self.persistence_service:
-                    try: baseline_data = self.persistence_service.get_selector_from_healenium_db(value)
-                    except: pass
+                    try: 
+                        # Lấy dữ liệu selector gốc từ database của Healenium để làm chuẩn (baseline)
+                        baseline_data = self.persistence_service.get_selector_from_healenium_db(value)
+                    except Exception as e:
+                        logger.debug(f"Could not fetch baseline: {e}")
                 
                 def extract_loc(bdata):
                     if not bdata: return None
@@ -258,22 +295,31 @@ class HealingManager:
                 baseline_value = extract_loc(baseline_data) or value
                 baseline_info = parse_baseline_info(baseline_value)
 
+                # Thu hẹp phạm vi tìm kiếm để tăng hiệu năng
                 search_tag = baseline_info["tag"]
                 xpath_query = f"//{search_tag}" if (search_tag and search_tag != "*") else "//button | //a | //input | //div"
-                dom_elements = self.driver.find_elements(By.XPATH, xpath_query)
+                
+                try:
+                    dom_elements = self.driver.find_elements(By.XPATH, xpath_query)
+                except Exception:
+                    dom_elements = []
                 
                 best_match = None
                 highest_score = 0.0
                 
                 for elm in dom_elements:
                     try:
+                        # Chỉ xét các phần tử đang hiển thị (tránh bẫy hidden elements)
                         if not elm.is_displayed(): continue
-                        curr_text = elm.text or elm.get_attribute("innerText") or ""
-                        curr_id = elm.get_attribute("id") or ""
                         
+                        curr_text = (elm.text or elm.get_attribute("innerText") or "").strip()
+                        curr_id = (elm.get_attribute("id") or "").strip()
+                        
+                        # Tính điểm tương đồng dựa trên LCS
                         score_text = get_lcs_score(baseline_info["text"], curr_text)
                         score_id = get_lcs_score(baseline_info["id"], curr_id)
                         
+                        # Trọng số ưu tiên Text (70%) vì ID thường bị thay đổi bởi framework
                         final_score = (score_text * 0.7) + (score_id * 0.3) if baseline_info["text"] else score_id
                         
                         if final_score > highest_score:
@@ -281,11 +327,20 @@ class HealingManager:
                             best_match = elm
                     except: continue
 
+                # Ngưỡng chấp nhận (Threshold) là 0.4
                 if best_match and highest_score > 0.4:
                     candidate_element = best_match
                     try: 
-                        gen_xpath = f"//{best_match.tag_name}[contains(text(), '{best_match.text}')]" if best_match.text else f"//{best_match.tag_name}"
-                    except: 
+                        tag = best_match.tag_name
+                        text_val = best_match.text.strip()
+                        
+                        # [SỬA QUAN TRỌNG]: Xử lý dấu nháy đơn/kép trong text để tránh lỗi XPath syntax
+                        if "'" in text_val:
+                            gen_xpath = f"//{tag}[contains(., \"{text_val}\")]"
+                        else:
+                            gen_xpath = f"//{tag}[contains(., '{text_val}')]"
+                            
+                    except Exception: 
                         gen_xpath = "DOM_LCS_MATCH"
                         
                     context.chosen_locator = (By.XPATH, gen_xpath)
@@ -294,25 +349,24 @@ class HealingManager:
                     logger.info(f"[Healing] 🏆 LCS Winner: {gen_xpath} (Score: {highest_score:.2f})")
                 else:
                     logger.warning(f"[Healing] LCS failed. Best score: {highest_score:.2f}")
-
-            if not candidate_element:
-                raise NoSuchElementException("No healing candidate found.")
-
-            # LAYER 3: DECISION
-            stability_score = 0.5 
+                    
+            # =========================================================
+            # LAYER 3: DECISION (Fuzzy Logic & Adaptive Threshold)
+            # =========================================================
+            # Lấy Risk Score dựa trên Instability thực tế từ DB
             decision = self.decision_layer.evaluate(
                 similarity_score=context.raw_score,
-                stability_score=stability_score
+                locator_value=value,
+                test_priority="high"
             )
             
             context.risk_score = decision['risk_score']
             context.adaptive_threshold = decision['threshold']
-            context.confidence_of_chosen = context.raw_score
-
+            
             logger.info(f"[Decision] Score: {context.raw_score:.2f} | Threshold: {context.adaptive_threshold:.2f} | Risk: {context.risk_score:.2f}")
 
             if context.raw_score < context.adaptive_threshold:
-                raise NoSuchElementException(f"Candidate rejected by Fuzzy Logic. Score {context.raw_score} < Threshold {context.adaptive_threshold}")
+                raise NoSuchElementException(f"Bị từ chối bởi Fuzzy Logic. Score {context.raw_score} < Threshold {context.adaptive_threshold}")
 
             # Highlight
             self.driver.execute_script("arguments[0].style.border='3px solid red'", candidate_element)
@@ -332,64 +386,75 @@ class HealingManager:
                     logger.error(f"[Healing] Visual validation error: {e}", exc_info=True)
                     context.visual_validation_status = "ERROR"
 
-            # 5. PERSISTENCE
+            # =========================================================
+            # 5. PERSISTENCE & LEARNING (GHI NHẬN KẾT QUẢ)
+            # =========================================================
             context.final_status = "SUCCESS"
             
+            # Tính toán thời gian sửa lỗi (ms)
+            repair_time_ms = 0
+            if hasattr(context, "start_ts") and context.start_ts:
+                repair_time_ms = int((time.perf_counter() - context.start_ts) * 1000)
+
             if self.persistence_service:
+                # A. Ghi sự kiện vào lịch sử Heal Event
                 self.persistence_service._insert_heal_event(
                     context=context,
-                    engine="PYTHON",
+                    engine="PYTHON_V1",
                     success=True,
                     locator_old=value,
-                    locator_new=context.chosen_locator[1],
+                    locator_new=context.chosen_locator[1] if context.chosen_locator else None,
                     chosen_source=context.source_of_chosen,
                     reason="Self-Healing Success",
                     basis_json=None
                 )
                 
+                # B. Cập nhật độ mất ổn định (TĂNG SUCCESS) - Cơ sở cho Decision Layer
+                self.persistence_service._update_locator_instability(
+                    locator_old=value, 
+                    success=True, 
+                    project_id=context.project_id
+                )
+                
+                # C. Ghi log Visual Validation nếu có
                 if context.visual_validation_status != "N/A":
                     last_vis = self.validation_layer.get_last_element_result() or {}
                     self.persistence_service.log_visual_validation_event(
                         test_id=(context.test_context or {}).get("test_id"),
                         run_id=(context.test_context or {}).get("run_id"),
                         scope="ELEMENT", 
-                        target_name=context.element_name,
-                        page_url=context.page_url, 
+                        target_name=context.element_name or "healed_element",
+                        page_url=current_url, 
                         status=context.visual_validation_status,
-                        ssim_score=last_vis.get("ssim_score"),
+                        ssim_score=last_vis.get("ssim_score", 0.0),
                         baseline_path=last_vis.get("baseline_path"),
                         current_path=last_vis.get("current_path"),
-                        diff_path=last_vis.get("diff_path"), 
-                        extra_metrics="{}" 
+                        diff_path=last_vis.get("diff_path")
                     )
 
-            if self.persistence_service:
-                # [SỬA 4] Tính duration thủ công để tránh lỗi AttributeError
-                current_duration = 0
-                if hasattr(context, "start_ts") and context.start_ts:
-                     current_duration = int((time.perf_counter() - context.start_ts) * 1000)
-
-                self.persistence_service._upsert_kb(
-                    fingerprint=fingerprint,
-                    old_locator=(by, value),
-                    new_locator=context.chosen_locator,
-                    success=True,
-                    duration_ms=current_duration, # Dùng biến vừa tính
-                    commit_info=None,
-                    app_version=None,
-                    project_id=(context.test_context or {}).get("project_id")
+            # D. Ghi vào Knowledge Base (Học tập cho lần sau - Layer 1)
+            if self.suggestion_layer and context.chosen_locator:
+                self.suggestion_layer.report_successful_heal(
+                    broken_locator=(by, value),
+                    healed_locator=context.chosen_locator,
+                    page_url=current_url,
+                    score=context.raw_score,
+                    engine_name=context.source_of_chosen.lower(),
+                    repair_time_ms=repair_time_ms
                 )
 
-            return candidate_element
-
         except Exception as e:
+            # =========================================================
+            # XỬ LÝ KHI HEALING THẤT BẠI
+            # =========================================================
             context.final_status = "FAILURE"
             logger.error(f"[Healing] FAILED: {e}")
             
             if self.persistence_service:
+                # A. Ghi sự kiện thất bại vào Heal Event
                 self.persistence_service._insert_heal_event(
                     context=context,
-                    engine="PYTHON",
+                    engine="PYTHON_V1",
                     success=False,
                     locator_old=value,
                     locator_new=None,
@@ -397,12 +462,32 @@ class HealingManager:
                     reason=str(e),
                     basis_json=None
                 )
+                # B. Cập nhật độ mất ổn định (TĂNG FAILURE) - Rất quan trọng để tăng Risk Score
+                self.persistence_service._update_locator_instability(
+                    locator_old=value, 
+                    success=False, 
+                    project_id=context.project_id
+                )
             
             raise NoSuchElementException(f"Self-Healing failed: {e}")
 
         finally:
             context.end_timer()
 
+        # TRẢ VỀ ELEMENT ĐỂ SELENIUM THỰC THI TIẾP
+        return candidate_element
+    def _report_event_to_db(self, context, old_val, success, reason=""):
+        """Helper để gọi persistence_service lưu sự kiện."""
+        self.persistence_service._insert_heal_event(
+            context=context,
+            engine="PYTHON_V1",
+            success=success,
+            locator_old=old_val,
+            locator_new=context.chosen_locator[1] if context.chosen_locator else None,
+            chosen_source=context.source_of_chosen,
+            reason=reason if not success else "Success"
+        )
+    
     def validate_fullscreen(
         self,
         driver: WebDriver,
