@@ -167,12 +167,15 @@ services:
     container_name: report_service_app
     env_file: ./report_service/.env
     environment:
+      - MONGO_URI=mongodb://mongo_db:27017/proactive_healing_db
       - DATABASE_URL=postgresql://app_user:app_password@system_db:5432/final
       - FLASK_APP=src/main.py
       - FLASK_DEBUG=1
     depends_on:
       system_db:
         condition: service_healthy
+      mongodb:  # Đợi MongoDB chạy trước
+        condition: service_started
     ports:
       - "8006:8000"
     volumes:

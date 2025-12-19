@@ -78,6 +78,26 @@ const testCaseService = {
     // GET http://localhost:8006/api/v1/reports/{runId}
     return axios.get(`/report-service/api/v1/reports/${runId}`);
   },
+
+  // Lấy danh sách Proactive Reports (Port 8006)
+  async getProactiveReports(testId, page = 1, limit = 10) {
+    // Gọi qua Proxy "/report-service" -> "http://localhost:8006"
+    return axios.get("/report-service/api/v1/analysis", {
+      params: {
+        test_id: testId,
+        page: page,
+        limit: limit
+      }
+    });
+  },
+
+  // Lấy chi tiết báo cáo Proactive (Port 8006)
+  // GET http://localhost:8006/api/v1/analysis/{analysisId}?test_id={testId}
+  async getProactiveReportDetail(analysisId, testId) {
+    return axios.get(`/report-service/api/v1/analysis/${analysisId}`, {
+      params: { test_id: testId }
+    });
+  },
 };
 
 export default testCaseService;

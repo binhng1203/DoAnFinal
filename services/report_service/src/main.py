@@ -1,7 +1,8 @@
 from flask import Flask
 from src.config import Config
-from src.extensions import db, ma, jwt
+from src.extensions import db, ma, jwt, mongo
 from src.api.v1.reports import reports_bp
+from src.api.v1.analysis import analysis_bp
 
 def create_app():
     app = Flask(__name__)
@@ -11,9 +12,11 @@ def create_app():
     db.init_app(app)
     ma.init_app(app)
     jwt.init_app(app)
+    mongo.init_app(app)
 
     # Register Blueprints
     app.register_blueprint(reports_bp)
+    app.register_blueprint(analysis_bp)
 
     @app.route('/health')
     def health():
