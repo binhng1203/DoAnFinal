@@ -6,7 +6,6 @@ from datetime import datetime
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 
-# Import psycopg2 an toàn (nếu chưa cài thư viện thì không crash ngay)
 try:
     import psycopg2
     import psycopg2.extras
@@ -22,44 +21,86 @@ MANUAL_OVERRIDE_TABLE = "custom_analytics.manual_override_mapping"
 PROJECT_TABLE = "custom_analytics.project"
 
 
-def _fingerprint_hash(fp: Dict[str, Any]) -> str:
-    """
-    Tạo fingerprint_hash: sha256(json_sorted).
-    """
-    s = json.dumps(fp or {}, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(s.encode("utf-8")).hexdigest()
-
+def _fingerprint_hash(fp_dict):
+    if not fp_dict: return ""
+    
+    # CHUẨN HÓA: Chuyển tất cả nháy kép thành nháy đơn trước khi Hash
+    val = str(fp_dict.get("locator_value", ""))
+    normalized_val = val.replace('"', "'")
+    
+    # Loại bỏ dấu xuyệt cuối URL
+    url = str(fp_dict.get("page_url", "")).rstrip('/')
+    
+    clean_fp = {
+        "page_url": url,
+        "locator_by": fp_dict.get("locator_by", ""),
+        "locator_value": normalized_val
+    }
+    
+    # Sắp xếp key để đảm bảo chuỗi JSON luôn duy nhất
+    fp_json = json.dumps(clean_fp, sort_keys=True)
+    return hashlib.sha256(fp_json.encode()).hexdigest()
 
 class CloudKnowledgeBaseClient:
-    """
-    Client tương tác với KB: public.healing_knowledge.
-    Hỗ trợ chế độ 'Safe Mode': Nếu không có config DB, tự động disable để không ảnh hưởng luồng chính.
-    """
 
-    def __init__(self, db_config: Optional[Dict[str, str]] = None):
+    def __init__(self, db_config: Optional[Dict[str, Any]] = None):
         self.conn = None
         self.db_config = db_config or {}
         self.enabled = False
 
         if not DB_AVAILABLE:
-            logger.warning("[KB Client] Thư viện 'psycopg2' chưa được cài đặt. KB bị vô hiệu hóa.")
+            logger.warning("[KB Client] psycopg2 chưa cài đặt.")
             return
 
-        # Kiểm tra config tối thiểu
-        if self.db_config and self.db_config.get('dbname'):
+        # --- LOGIC LINH HOẠT Ở ĐÂY ---
+        # Thử lấy 'dbname', nếu không có thì thử lấy 'database'
+        actual_db_name = self.db_config.get('dbname') or self.db_config.get('database')
+        
+        if self.db_config and actual_db_name:
+            # Chuẩn hóa lại cho psycopg2 (thư viện này bắt buộc dùng key 'dbname')
+            if 'database' in self.db_config:
+                self.db_config['dbname'] = self.db_config.pop('database')
+            
             self.enabled = True
             try:
                 self.conn = psycopg2.connect(**self.db_config)
                 psycopg2.extras.register_json(self.conn)
-                self.conn.autocommit = False
-                logger.info(f"[KB Client] Kết nối CSDL '{self.db_config.get('dbname')}' thành công.")
+                self.conn.autocommit = True
+                logger.info(f"[KB Client] ✅ Kết nối thành công tới DB: {actual_db_name}")
             except Exception as e:
-                logger.error(f"[KB Client] Không thể kết nối CSDL (chuyển sang mode Disabled): {e}")
+                logger.error(f"[KB Client] ❌ Kết nối thất bại: {e}")
                 self.enabled = False
-                self.conn = None
         else:
-            logger.info("[KB Client] Không có cấu hình DB. Chạy ở chế độ 'Offline' (Disabled).")
-
+            logger.info("[KB Client] ⚠️ Thiếu config (dbname/database). Chế độ Offline.")
+    def _ensure_schema_exists(self):
+        """Đảm bảo bảng healing_knowledge tồn tại để không bị lỗi khi ghi."""
+        if not self.conn: return
+        try:
+            with self.conn.cursor() as cur:
+                # Kiểm tra và tạo bảng nếu chưa có (Dựa trên schema bạn đang dùng)
+                cur.execute(f"""
+                    CREATE TABLE IF NOT EXISTS {PUBLIC_KB_TABLE} (
+                        fingerprint_hash VARCHAR(64) PRIMARY KEY,
+                        fingerprint_json JSONB,
+                        project_id VARCHAR(50),
+                        old_locator_by VARCHAR(20),
+                        old_locator_value TEXT,
+                        new_locator_by VARCHAR(20),
+                        new_locator_value TEXT,
+                        success_count INTEGER DEFAULT 0,
+                        failure_count INTEGER DEFAULT 0,
+                        success_rate FLOAT DEFAULT 0,
+                        last_engine VARCHAR(50),
+                        last_score FLOAT,
+                        avg_repair_ms INTEGER DEFAULT 0,
+                        last_success_at TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        source_type VARCHAR(20)
+                    );
+                """)
+                logger.debug(f"[KB Client] Schema check: Table {PUBLIC_KB_TABLE} is ready.")
+        except Exception as e:
+            logger.warning(f"[KB Client] Không thể kiểm tra/tạo schema: {e}")
     # ---------------------------------------------------------
     # Helper: resolve project_id
     # ---------------------------------------------------------
@@ -126,10 +167,52 @@ class CloudKnowledgeBaseClient:
         except Exception as e:
             logger.debug(f"[KB Client] _resolve_project_id failed: {e}")
             return None
-
+        
+    def query_suggestion(self, fingerprint: Dict[str, Any], locator_value: str) -> Optional[Dict[str, Any]]:
+        suggestions = self.get_suggestions(fingerprint, page_url=fingerprint.get("page_url"))
+        if suggestions:
+            best = suggestions[0]
+            return {
+                "new_locator_by": best.get("by"),
+                "new_locator_value": best.get("value"),
+                "success_rate": best.get("success_rate", 0.0),
+                "score": best.get("score", 0.0)
+            }
+        return None
     # ---------------------------------------------------------
     # Core Functions
     # ---------------------------------------------------------
+    def find_suggestion(self, fingerprint, locator_value):
+        """
+        [CLIENT] Thực thi SQL để tìm tri thức từ Postgres.
+        """
+        # 1. Nếu Client chưa kết nối thành công thì bỏ qua
+        if not self.enabled or not self.conn:
+            return None
+
+        # 2. Tạo mã Hash để đối chiếu
+        fp_hash = _fingerprint_hash(fingerprint)
+        
+        # 3. SQL: Bỏ project_id, ưu tiên Hash, sau đó đến Locator gốc
+        query = f"""
+            SELECT * FROM {PUBLIC_KB_TABLE} 
+            WHERE fingerprint_hash = %s 
+               OR old_locator_value = %s
+            ORDER BY success_rate DESC, last_success_at DESC 
+            LIMIT 1
+        """
+        
+        try:
+            with self.conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+                cur.execute(query, (fp_hash, locator_value))
+                result = cur.fetchone()
+                if result:
+                    logger.info(f"[KB Client] 🎯 Match found in DB (Hash: {result['fingerprint_hash'][:8]})")
+                return result
+        except Exception as e:
+            logger.error(f"[KB Client] Find suggestion SQL failed: {e}")
+            return None
+        
     def get_suggestions(
         self,
         fingerprint: Dict[str, Any],
@@ -270,145 +353,58 @@ class CloudKnowledgeBaseClient:
 
         return suggestions
 
-    def update_knowledge(
-        self,
-        old_locator: Tuple[str, str],
-        new_locator: Tuple[str, str],
-        fingerprint: Dict[str, Any],
-        commit_info: Dict[str, Any],
-        page_url: Optional[str] = None,
-        engine: str = "PYTHON",
-        score: Optional[float] = None,
-        duration_ms: Optional[int] = None,
-    ) -> None:
-        
-        if not self.enabled or not self.conn:
-            return
-
-        old_by, old_val = old_locator
-        new_by, new_val = new_locator
+    def update_knowledge(self, old_locator, new_locator, fingerprint, commit_info, page_url=None, engine="PYTHON", score=None, duration_ms=0):
+        if not self.enabled: return
         fp_hash = _fingerprint_hash(fingerprint)
-        fp_json = psycopg2.extras.Json(fingerprint or {})
-        commit_json = psycopg2.extras.Json(commit_info or {})
-
+        
         try:
-            # Re-verify connection
-            if self.conn.closed:
-                self.conn = psycopg2.connect(**self.db_config)
-
+            if self.conn.closed: self.conn = psycopg2.connect(**self.db_config)
             with self.conn.cursor() as cur:
-                try:
-                    cur.execute("SET search_path TO custom_analytics, public;")
-                except: pass
-
                 project_id = self._resolve_project_id(cur, page_url)
-
-                # --- Try Variant A Upsert ---
-                try:
-                    insert_sql = f"""
-                    INSERT INTO {PUBLIC_KB_TABLE} (
-                        project_id, fingerprint_hash, fingerprint_json,
-                        old_locator_by, old_locator_value,
-                        new_locator_by, new_locator_value,
-                        success_count, failure_count, success_rate,
-                        last_engine, last_score, commit_info, 
-                        avg_repair_ms, last_success_at, updated_at
-                    ) VALUES (
-                        %s, %s, %s,
-                        %s, %s, %s, %s,
-                        1, 0, 100.0,
-                        %s, %s, %s,
-                        %s, NOW(), NOW()
-                    )
-                    ON CONFLICT (project_id, fingerprint_hash, old_locator_value, new_locator_value)
-                    DO UPDATE SET
-                        success_count = {PUBLIC_KB_TABLE}.success_count + 1,
-                        success_rate = (CAST({PUBLIC_KB_TABLE}.success_count + 1 AS FLOAT) / ({PUBLIC_KB_TABLE}.success_count + {PUBLIC_KB_TABLE}.failure_count + 1)) * 100,
-                        last_success_at = NOW(),
-                        last_engine = EXCLUDED.last_engine,
-                        last_score = EXCLUDED.last_score,
-                        updated_at = NOW();
-                    """
-                    cur.execute(insert_sql, (
-                        project_id, fp_hash, fp_json,
-                        old_by, old_val, new_by, new_val,
-                        engine, score, commit_json, int(duration_ms or 0)
-                    ))
-                    self.conn.commit()
-                    logger.info(f"[Learning] Updated KB (Variant A): {old_val} -> {new_val}")
-                    return
-                except (psycopg2.errors.UndefinedColumn, psycopg2.errors.UniqueViolation, psycopg2.errors.InFailedSqlTransaction):
-                    self.conn.rollback()
-                    logger.debug("[Learning] Variant A insert failed, trying Variant B...")
                 
-                # --- Try Variant B Upsert ---
-                try:
-                    insert_sql_b = f"""
+                # CẬP NHẬT SQL: Sử dụng last_updated và last_seen_at
+                insert_sql = f"""
                     INSERT INTO {PUBLIC_KB_TABLE} (
-                        project_id, fingerprint,
-                        old_locator_by, old_locator_value,
-                        new_locator_by, new_locator_value,
-                        success_count, failure_count,
-                        source_type, commit_info, last_success_at, last_updated
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, 1, 0,
-                        %s, %s, NOW(), NOW()
-                    )
-                    ON CONFLICT (fingerprint, old_locator_value, new_locator_value)
+                        project_id, fingerprint, fingerprint_hash, fingerprint_json,
+                        old_locator_by, old_locator_value, new_locator_by, new_locator_value,
+                        success_count, failure_count, success_rate, last_engine, last_score,
+                        avg_repair_ms, last_success_at, last_updated, last_seen_at, source_type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 0, %s, %s, %s, %s, NOW(), NOW(), NOW(), 'AUTO')
+                    ON CONFLICT ON CONSTRAINT uq_kb 
                     DO UPDATE SET
                         success_count = {PUBLIC_KB_TABLE}.success_count + 1,
-                        last_success_at = NOW(),
+                        last_score = EXCLUDED.last_score,
+                        avg_repair_ms = ({PUBLIC_KB_TABLE}.avg_repair_ms + EXCLUDED.avg_repair_ms) / 2,
+                        last_seen_at = NOW(),
                         last_updated = NOW();
-                    """
-                    cur.execute(insert_sql_b, (
-                        project_id, fp_json,
-                        old_by, old_val, new_by, new_val,
-                        engine, commit_json
-                    ))
-                    self.conn.commit()
-                    logger.info(f"[Learning] Updated KB (Variant B): {old_val} -> {new_val}")
-                except Exception as e:
-                    self.conn.rollback()
-                    logger.error(f"[Learning] All insert attempts failed: {e}")
-
+                """
+                cur.execute(insert_sql, (
+                    project_id, 
+                    psycopg2.extras.Json(fingerprint), 
+                    fp_hash, 
+                    psycopg2.extras.Json(fingerprint),
+                    old_locator[0], old_locator[1], 
+                    new_locator[0], new_locator[1],
+                    float(score * 100) if score else 0.0,
+                    engine, score, duration_ms
+                ))
+                self.conn.commit()
         except Exception as e:
-            logger.error(f"[Learning] Connection error during update: {e}")
-
+            logger.error(f"[KB Client] Update Knowledge failed: {e}")
+            self.conn.rollback()
     # ---------------------------------------------------------
     # Wrapper for Manager
     # ---------------------------------------------------------
-    def save_mapping(
-        self,
-        page_url: Optional[str],
-        broken_by: str,
-        broken_value: str,
-        healed_by: str,
-        healed_value: str,
-        source: str,
-        score: float,
-        duration_ms: Optional[int] = None,
-        commit_info: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """API wrapper cho HealingManager"""
-        if not self.enabled: return
-
-        fingerprint = {
-            "locator_by": broken_by,
-            "locator_value": broken_value,
-            "page_url": page_url,
-        }
-        
+    def save_healing_result(self, payload: Dict[str, Any]):
         self.update_knowledge(
-            old_locator=(broken_by, broken_value),
-            new_locator=(healed_by, healed_value),
-            fingerprint=fingerprint,
-            commit_info=commit_info or {},
-            page_url=page_url,
-            engine=source,
-            score=score,
-            duration_ms=duration_ms
+            old_locator=(payload['old_locator_by'], payload['old_locator_value']),
+            new_locator=(payload['new_locator_by'], payload['new_locator_value']),
+            fingerprint=payload['fingerprint_json'],
+            commit_info={},
+            engine=payload['last_engine'],
+            score=payload['last_score'],
+            duration_ms=payload['avg_repair_ms']
         )
-
     def __del__(self):
         if self.conn and not self.conn.closed:
             try:

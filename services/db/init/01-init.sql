@@ -52,38 +52,44 @@ ALTER ROLE app_user SET search_path = custom_analytics, public;
 -- ====================================================================================
 CREATE TABLE IF NOT EXISTS public.healing_knowledge (
     id                BIGSERIAL PRIMARY KEY,
-    project_id        VARCHAR(50),                     -- [FIXED] Changed to VARCHAR/TEXT to match hash string
-    fingerprint       JSONB NOT NULL,                  -- Signature
-    fingerprint_hash  TEXT,                            -- Added for fast lookup (Variant A)
-    fingerprint_json  JSONB,                           -- Added for compatibility
+    project_id        VARCHAR(50), 
+    
+    -- [PHẦN QUAN TRỌNG CHO SUGGESTION LAYER]
+    fingerprint       JSONB NOT NULL,                   -- Dùng cho Variant B (JSONB match)
+    fingerprint_hash  TEXT UNIQUE,                      -- [MỚI] Thêm UNIQUE để lệnh ON CONFLICT hoạt động
+    fingerprint_json  JSONB,                            -- Để tương thích với payload Python
 
+    -- [LOCATOR INFO]
     old_locator_by    VARCHAR(50) NOT NULL,
     old_locator_value TEXT NOT NULL,
     new_locator_by    VARCHAR(50) NOT NULL,
     new_locator_value TEXT NOT NULL,
 
+    -- [METRICS]
     success_count     INT NOT NULL DEFAULT 0,
     failure_count     INT NOT NULL DEFAULT 0,
-    success_rate      NUMERIC(5,2),                    -- Added for sorting suggestions
+    success_rate      NUMERIC(5,2), 
     avg_repair_ms     BIGINT NOT NULL DEFAULT 0,
 
+    -- [TIMESTAMPS]
     last_success_at   TIMESTAMPTZ,
     last_failure_at   TIMESTAMPTZ,
-    
-    last_engine       TEXT,                            -- 'PYTHON', 'NATIVE'
-    last_score        NUMERIC(5,4),
-
-    commit_info       JSONB,
-    source_type       TEXT DEFAULT 'AUTO',
-    
-    manual_override   BOOLEAN DEFAULT FALSE,           -- Ưu tiên cao nhất nếu True
-
-    last_updated      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- [SỬA] Đổi tên từ last_updated thành updated_at để khớp với lỗi Python
     last_seen_at      TIMESTAMPTZ DEFAULT NOW(),
 
-    CONSTRAINT uq_kb UNIQUE (fingerprint, old_locator_value, new_locator_value)
+    -- [EXTRA INFO]
+    last_engine       TEXT,                             -- 'PYTHON', 'LCS', 'HEALENIUM'
+    last_score        NUMERIC(5,4),
+    commit_info       JSONB,
+    source_type       TEXT DEFAULT 'AUTO',
+    manual_override   BOOLEAN DEFAULT FALSE,
+
+    -- [CONSTRAINT NÂNG CAO]
+    -- Giữ constraint này nếu bạn muốn chặn trùng lặp locator
+    CONSTRAINT uq_kb_locators UNIQUE (fingerprint, old_locator_value, new_locator_value)
 );
 
+-- Phân quyền và tạo Index để truy vấn nhanh
 ALTER TABLE public.healing_knowledge OWNER TO app_user;
 CREATE INDEX IF NOT EXISTS idx_kb_fp_hash ON public.healing_knowledge(fingerprint_hash);
 
@@ -95,7 +101,7 @@ CREATE INDEX IF NOT EXISTS idx_kb_fp_hash ON public.healing_knowledge(fingerprin
 CREATE TABLE IF NOT EXISTS custom_analytics.test_run_history (
     id                  BIGSERIAL PRIMARY KEY,
     test_id             TEXT NOT NULL,
-    run_id              TEXT,                            -- [UPDATE] Added run_id (uuid string)
+    run_id              TEXT UNIQUE,                            -- [UPDATE] Added run_id (uuid string)
     timestamp           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     raw_result          TEXT,                            -- 'Pass' / 'Fail'
@@ -127,7 +133,6 @@ CREATE TABLE IF NOT EXISTS custom_analytics.heal_event (
     project_id         TEXT,                             -- [FIXED] Changed to TEXT
 
     page_url           TEXT,
-    
     locator_old        TEXT NOT NULL,
     locator_new        TEXT,
     
