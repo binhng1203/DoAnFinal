@@ -108,11 +108,23 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                   </div>
                 </div>
 
-                {/* Priority (Mock hoặc lấy từ runInfo nếu có) */}
+                {/* Priority (Đã sửa để lấy dynamic từ runInfo) */}
                 <div className="min-w-[100px] rounded-xl border border-slate-200 bg-white p-3">
                   <span className="text-xs text-slate-400 font-medium uppercase">Priority</span>
                   <div className="mt-1">
-                    <span className="bg-rose-100 text-rose-600 text-[10px] font-bold px-2 py-0.5 rounded">High</span>
+                    {(() => {
+                      const p = (runInfo?.priority || "medium").toLowerCase();
+                      let style = "bg-amber-100 text-amber-600"; // Mặc định Medium
+                      
+                      if (p === "high") style = "bg-rose-100 text-rose-600";
+                      else if (p === "low") style = "bg-emerald-100 text-emerald-600";
+
+                      return (
+                        <span className={`${style} text-[10px] font-bold px-2 py-0.5 rounded capitalize`}>
+                          {runInfo?.priority || "Medium"}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 

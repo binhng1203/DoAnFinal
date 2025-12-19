@@ -8,6 +8,7 @@ import ConfirmModal from "../../components/common/ConfirmModal";
 import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal";
 import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
 import RunDetailModal from "../../components/test-cases/RunDetailModal";
+import ProactiveDetailModal from "../../components/test-cases/ProactiveDetailModal";
 
 export default function TestCaseDetailPage() {
   const { projectId, suiteId, caseId } = useParams();
@@ -61,7 +62,7 @@ export default function TestCaseDetailPage() {
     setSelectedRunId(reportItem.run_id);
     setSelectedRunInfo({
         duration: formatDuration(reportItem.total_duration_ms),
-        // Có thể thêm các field khác từ list nếu API detail thiếu
+        priority: testCase?.priority
     });
     setIsDetailModalOpen(true);
   };
@@ -134,6 +135,72 @@ export default function TestCaseDetailPage() {
   const formatDuration = (ms) => {
     if (!ms) return "0s";
     return (ms / 1000).toFixed(2) + "s";
+  };
+
+
+ const [proactiveReports, setProactiveReports] = useState([]);
+  const [proactiveLoading, setProactiveLoading] = useState(false);
+  const [proactivePagination, setProactivePagination] = useState({
+    total_items: 0,
+    total_pages: 1
+  });
+  const [proactivePage, setProactivePage] = useState(1);
+  // ====== FETCH PROACTIVE REPORTS ======
+  const fetchProactiveReports = async () => {
+    if (!caseId) return;
+    try {
+      setProactiveLoading(true);
+      // Gọi API mới thêm trong service
+      const res = await testCaseService.getProactiveReports(caseId, proactivePage, 10);
+      
+      const responseData = res.data; // { data: [], pagination: {} }
+      setProactiveReports(responseData.data || []);
+      setProactivePagination(responseData.pagination || { total_items: 0, total_pages: 1 });
+
+    } catch (err) {
+      console.error("Lỗi tải proactive reports:", err);
+    } finally {
+      setProactiveLoading(false);
+    }
+  };
+
+  // Gọi fetch khi vào trang hoặc đổi trang
+  useEffect(() => {
+    fetchProactiveReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [caseId, proactivePage]);
+
+  // Helper render thanh Score
+  const renderScoreBar = (score) => {
+    let color = "bg-slate-300";
+    if (score >= 80) color = "bg-emerald-500";
+    else if (score >= 50) color = "bg-amber-500";
+    else if (score > 0) color = "bg-rose-500";
+
+    return (
+      <div className="flex items-center gap-2 w-24">
+        <div className="h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+          <div className={`h-full ${color}`} style={{ width: `${score}%` }} />
+        </div>
+        <span className="text-[10px] font-bold text-slate-600 w-6 text-right">{score}</span>
+      </div>
+    );
+  };
+
+  // Helper render Status Badge
+  const renderProactiveStatus = (status) => {
+    const s = status.toUpperCase();
+    let style = "bg-slate-100 text-slate-500";
+    if (s === "PASS") style = "bg-emerald-500 text-white";
+    if (s === "FAIL") style = "bg-rose-500 text-white";
+    if (s === "WARNING") style = "bg-orange-400 text-white";
+    if (s === "SKIPPED") style = "bg-slate-500 text-white";
+
+    return (
+      <span className={`px-3 py-0.5 rounded-full text-[10px] font-bold ${style}`}>
+        {s}
+      </span>
+    );
   };
 
   // ====== RUN TEST CASE ======
@@ -304,6 +371,14 @@ export default function TestCaseDetailPage() {
     }
   };
 
+  // State cho Proactive Detail Modal
+  const [isProactiveDetailOpen, setIsProactiveDetailOpen] = useState(false);
+  const [selectedProactiveId, setSelectedProactiveId] = useState(null);
+  const handleOpenProactiveDetail = (item) => {
+    setSelectedProactiveId(item.id); // item.id chính là Mongo ID
+    setIsProactiveDetailOpen(true);
+  };
+
   // ===== LOADING / ERROR =====
   if (loading) {
     return (
@@ -371,6 +446,8 @@ export default function TestCaseDetailPage() {
   const pagePath = testCase.fullscreen_page_name || "—";
 
   const tags = Array.isArray(testCase.tags) ? testCase.tags : [];
+
+ 
 
   return (
     <div className="space-y-4">
@@ -649,7 +726,7 @@ export default function TestCaseDetailPage() {
       {/* ===================== TEST REPORTS SECTION (REAL DATA) ===================== */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">Test Reports</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Test Reports - Self Healing</h2>
           <button onClick={fetchReports} className="text-xs text-primary hover:underline">
              Refresh
           </button>
@@ -805,6 +882,119 @@ export default function TestCaseDetailPage() {
         )}
       </div>
 
+      {/* ===================== TEST REPORTS - PROACTIVE FAULT (REAL DATA) ===================== */}
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+            Test Reports - Proactive Fault
+          </h2>
+          <button onClick={fetchProactiveReports} className="text-xs text-primary hover:underline">
+             Refresh
+          </button>
+        </div>
+
+        {/* TABLE PROACTIVE */}
+        <div className="overflow-x-auto rounded-lg border border-slate-100">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100">
+              <tr>
+                <th className="px-4 py-3 text-left">PR Info</th>
+                <th className="px-4 py-3 text-left">Commit Message</th>
+                <th className="px-4 py-3 text-left">Author</th>
+                <th className="px-4 py-3 text-left">Score</th>
+                <th className="px-4 py-3 text-center">Status</th>
+                <th className="px-4 py-3 text-left">Timestamp</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {proactiveLoading ? (
+                 <tr><td colSpan={6} className="text-center py-4 text-slate-500">Đang tải dữ liệu...</td></tr>
+              ) : proactiveReports.length === 0 ? (
+                 <tr><td colSpan={6} className="text-center py-4 text-slate-500 italic">Chưa có báo cáo nào.</td></tr>
+              ) : (
+                proactiveReports.map((item, idx) => (
+                  <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer"
+                  onClick={() => handleOpenProactiveDetail(item)}>
+                    {/* Cột 1: PR Number (Kết hợp Icon Github nếu muốn) */}
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                         <span className="font-mono font-bold text-blue-600">#{item.pr_number}</span>
+                      </div>
+                    </td>
+
+                    {/* Cột 2: Commit Message (Cắt ngắn nếu dài) */}
+                    <td className="px-4 py-3 max-w-[200px] truncate" title={item.commit_msg}>
+                      <span className="text-slate-700">{item.commit_msg || "—"}</span>
+                    </td>
+
+                    {/* Cột 3: Author */}
+                    <td className="px-4 py-3">
+                       <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
+                         {item.author || "Unknown"}
+                       </span>
+                    </td>
+
+                    {/* Cột 4: Score (Dùng lại helper renderScoreBar cũ) */}
+                    <td className="px-4 py-3">
+                      {/* JSON trả về confidence_score, ta truyền vào hàm render cũ */}
+                      {renderScoreBar(item.confidence_score)}
+                    </td>
+
+                    {/* Cột 5: Status (Dùng lại helper renderProactiveStatus cũ) */}
+                    <td className="px-4 py-3 text-center">
+                      {renderProactiveStatus(item.status)}
+                    </td>
+
+                    {/* Cột 6: Timestamp */}
+                    <td className="px-4 py-3 text-slate-500">
+                      {formatDate(item.started_at)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* PAGINATION (REAL) */}
+        {proactivePagination.total_pages > 1 && (
+          <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+             <span>
+                Showing page {proactivePage} of {proactivePagination.total_pages} ({proactivePagination.total_items} items)
+             </span>
+             <div className="flex items-center gap-1">
+                <button 
+                  disabled={proactivePage === 1}
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  onClick={() => setProactivePage(p => Math.max(1, p - 1))}
+                >
+                  &lt;
+                </button>
+                
+                {[...Array(proactivePagination.total_pages)].slice(0, 5).map((_, i) => (
+                   <button 
+                     key={i}
+                     onClick={() => setProactivePage(i + 1)}
+                     className={`h-7 w-7 flex items-center justify-center rounded-md ${
+                        proactivePage === i + 1 ? 'bg-[#6425FE] text-white' : 'hover:bg-slate-50 text-slate-600'
+                     }`}
+                   >
+                     {i + 1}
+                   </button>
+                ))}
+
+                <button 
+                  disabled={proactivePage === proactivePagination.total_pages}
+                  className="h-7 w-7 flex items-center justify-center rounded-md border border-slate-200 hover:bg-slate-50 disabled:opacity-50"
+                  onClick={() => setProactivePage(p => Math.min(proactivePagination.total_pages, p + 1))}
+                >
+                  &gt;
+                </button>
+             </div>
+          </div>
+        )}
+      </div>
+
       {/* POPUP ADD STEP */}
       <AddStepModal
         isOpen={isAddStepOpen}
@@ -847,6 +1037,14 @@ export default function TestCaseDetailPage() {
             onClose={() => setIsDetailModalOpen(false)}
             runId={selectedRunId}
             runInfo={selectedRunInfo}
+        />
+
+        {/* MODAL PROACTIVE DETAIL */}
+        <ProactiveDetailModal 
+          isOpen={isProactiveDetailOpen}
+          onClose={() => setIsProactiveDetailOpen(false)}
+          analysisId={selectedProactiveId}
+          testId={caseId} // Truyền caseId để làm tham số cho API
         />
     </div>
   );
