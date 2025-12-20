@@ -107,8 +107,9 @@ services:
     container_name: test_runner_app
     environment:
       - DB_HOST=system_db
-      - DB_USER=app_user
-      - DB_PASSWORD=app_password
+      - DB_USER=postgres  # Chỉnh lại theo POSTGRES_USER của system_db
+      - DB_PASSWORD=postgres
+      - DB_NAME=final
       - HEALENIUM_HOST=http://healenium:7878
       - SELENIUM_HOST=http://hlm-proxy:8085/wd/hub
     depends_on:
@@ -118,6 +119,10 @@ services:
       - "8003:8000"
     volumes:
       - ./self_healing_services:/app
+      # Map thư mục ảnh để Validation Layer (SSIM/OpenCV) hoạt động
+      - ./self_healing_services/visual_baseline:/app/visual_baseline
+    # THÊM DÒNG NÀY: Để API tự khởi động và tự tải lại khi bạn sửa code
+    command: uvicorn runner.api:app --host 0.0.0.0 --port 8000 --reload
     networks:
       - app-network
 
@@ -232,7 +237,7 @@ services:
     environment:
       - RECOVERY_TRIES=1
       - SCORE_CAP=.6
-      - HEAL_ENABLED=false
+      - HEAL_ENABLED=true
       - SELENIUM_SERVER_URL=http://selenium-hub:4444/wd/hub
       - HEALENIUM_SERVER_URL=http://healenium:7878
       - HEALENIUM_SERVICE=http://healenium:7878

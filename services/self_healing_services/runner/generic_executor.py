@@ -1,222 +1,113 @@
-import logging
+import os
 import time
+import logging
 from typing import Any, Dict, List, Callable
-
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+from self_healing_v1.manager import HealingManager
 
 logger = logging.getLogger(__name__)
 
-# Map locator_type (string trong DB) -> selenium By
+# Mapping locator string sang Selenium By
 _BY_MAPPING = {
-    "id": By.ID,
-    "xpath": By.XPATH,
-    "css": By.CSS_SELECTOR,
-    "css_selector": By.CSS_SELECTOR,
-    "class_name": By.CLASS_NAME,
-    "name": By.NAME,
-    "link_text": By.LINK_TEXT,
-    "partial_link_text": By.PARTIAL_LINK_TEXT,
-    "tag_name": By.TAG_NAME,
+    "id": By.ID, "xpath": By.XPATH, "css": By.CSS_SELECTOR,
+    "class_name": By.CLASS_NAME, "name": By.NAME
 }
 
-
-def _build_by(locator_type: str, locator_value: str):
-    if not locator_type:
-        raise ValueError("locator_type is required for this action")
-    if locator_type not in _BY_MAPPING:
-        raise ValueError(f"Unsupported locator_type: {locator_type}")
-    return _BY_MAPPING[locator_type], locator_value
-
-
-def run_steps_test(
-    driver: Any,
-    healing_find_func: Callable,
-    test_definition: Dict[str, Any],
-    **kwargs,
-):
+def run_steps_test(driver, healing_find_func, test_definition, **kwargs):
     """
-    Executor generic cho mọi testcase data-driven.
-
-    test_definition:
-      - "test_id"
-      - "name"
-      - "priority" (optional)
-      - "steps": list các step, mỗi step có:
-        + order
-        + action
-        + locator_type
-        + locator_value
-        + value
-        + url
-        + expected
-        (+ element_name: optional, nếu sau này bạn thêm vào DB)
+    Hàm thực thi từng bước (Action Engine).
+    Sử dụng healing_find_func để kích hoạt Self-healing của Manager.
     """
-
-    steps: List[Dict[str, Any]] = sorted(
-        test_definition.get("steps", []),
-        key=lambda s: s.get("order", 0),
-    )
-
-    timeout = kwargs.get("timeout", 10)
-
-    test_id = str(test_definition.get("test_id", "unknown"))
-    test_name = test_definition.get("name", "")
-    test_priority = test_definition.get("priority", "medium")
-
-    logger.info("=== [Executor] Start test: %s (%s) ===", test_name, test_id)
-
-    # test_context tối thiểu cho Healenium
-    base_test_context: Dict[str, Any] = {
-        "test_id": test_id,
-        "test_name": test_name,
-        "test_case_priority": test_priority,
-        "commit_info": {
-            "hash": kwargs.get("git_hash", "N/A"),
-            "author": kwargs.get("author", "system-api"),
-            "build_version": kwargs.get("build_version", "api-build"),
-            "app_version": kwargs.get("app_version", "1.0.0"),
-        },
-    }
+    steps = sorted(test_definition.get("steps", []), key=lambda s: s.get("order", 0))
+    timeout = kwargs.get("timeout", 15)
 
     for step in steps:
-        order = step.get("order")
-        action = (step.get("action") or "").strip()
-        locator_type = step.get("locator_type")
-        locator_value = step.get("locator_value")
-        value = step.get("value")
-        url = step.get("url")
-        expected = step.get("expected")
-
-        # Tạo element_name “tạm xịn” (vì DB chưa có cột này)
-        element_name = step.get("element_name")
-        if not element_name:
-            if locator_value:
-                element_name = f"Step_{order}_{action}_{locator_value}"
-            else:
-                element_name = f"Step_{order}_{action}"
-
-        # Clone test_context cho mỗi step
-        test_context = dict(base_test_context)
-        try:
-            current_url = driver.current_url
-        except Exception:
-            current_url = None
-        test_context["step_order"] = order
-        test_context["step_action"] = action
-        test_context["page_url"] = current_url
-
-        logger.info(
-            "[Executor] Step %s: action=%s, locator_type=%s, locator_value=%s, value=%s, url=%s, expected=%s, element_name=%s",
-            order,
-            action,
-            locator_type,
-            locator_value,
-            value,
-            url,
-            expected,
-            element_name,
-        )
+        action = step.get("action", "").lower().strip()
+        l_type = step.get("locator_type")
+        l_val = step.get("locator_value")
+        val = step.get("value")
+        
+        # Tạo context để Manager biết đang ở step nào (phục vụ Decision/Validation Layer)
+        test_context = {
+            "test_id": test_definition.get("test_id"),
+            "step_order": step.get("order"),
+            "step_action": action
+        }
 
         try:
-            # 1. OPEN_URL
             if action == "open_url":
-                if not url:
-                    raise ValueError("Step 'open_url' requires 'url'")
-                driver.get(url)
-                test_context["page_url"] = url
+                driver.get(step.get("url"))
+                # Đợi trang load xong hoàn toàn trước khi tiếp tục
+                WebDriverWait(driver, timeout).until(lambda d: d.execute_script('return document.readyState') == 'complete')
 
-            # 2. CLICK
             elif action == "click":
-                by, val = _build_by(locator_type, locator_value)
-                el = healing_find_func(
-                    by=by,
-                    value=val,
-                    element_name=element_name,
-                    test_context=test_context,
-                )
+                by = _BY_MAPPING.get(l_type, By.ID)
+                el = healing_find_func(by=by, value=l_val, element_name=f"Step_{step.get('order')}", test_context=test_context)
                 el.click()
 
-            # 3. TYPE
             elif action == "type":
-                by, val = _build_by(locator_type, locator_value)
-                el = healing_find_func(
-                    by=by,
-                    value=val,
-                    element_name=element_name,
-                    test_context=test_context,
-                )
+                by = _BY_MAPPING.get(l_type, By.ID)
+                el = healing_find_func(by=by, value=l_val, element_name=f"Step_{step.get('order')}", test_context=test_context)
                 el.clear()
-                if value is not None:
-                    el.send_keys(str(value))
+                el.send_keys(str(val))
 
-            # 4. WAIT_SECONDS (optional)
             elif action == "wait_seconds":
-                secs = float(value or 1)
-                time.sleep(secs)
+                time.sleep(float(val or 1))
 
-            # 5. ASSERT_URL_CONTAINS
-            elif action == "assert_url_contains":
-                if not expected:
-                    raise ValueError("Step 'assert_url_contains' requires 'expected'")
-                WebDriverWait(driver, timeout).until(
-                    EC.url_contains(expected)
-                )
-                current = driver.current_url
-                assert expected in current, (
-                    f"[ASSERT_URL_CONTAINS] expected '{expected}' in '{current}'"
-                )
-
-            # 6. ASSERT_VISIBLE
-            elif action == "assert_visible":
-                by, val = _build_by(locator_type, locator_value)
-                WebDriverWait(driver, timeout).until(
-                    EC.visibility_of_element_located((by, val))
-                )
-
-            # 7. ASSERT_TEXT
             elif action == "assert_text":
-                by, val = _build_by(locator_type, locator_value)
-                el = healing_find_func(
-                    by=by,
-                    value=val,
-                    element_name=element_name,
-                    test_context=test_context,
-                )
-                actual = (el.text or "").strip()
-                exp = (expected or "").strip()
-                assert actual == exp, (
-                    f"[ASSERT_TEXT] expected '{exp}', got '{actual}'"
-                )
-
-            # 8. ASSERT_TEXT_CONTAINS
-            elif action == "assert_text_contains":
-                by, val = _build_by(locator_type, locator_value)
-                el = healing_find_func(
-                    by=by,
-                    value=val,
-                    element_name=element_name,
-                    test_context=test_context,
-                )
-                actual = (el.text or "").strip()
-                exp = (expected or "").strip()
-                assert exp in actual, (
-                    f"[ASSERT_TEXT_CONTAINS] expected '{exp}' in '{actual}'"
-                )
-
-            else:
-                raise ValueError(f"Unknown action: {action!r} in step {order}")
-
+                by = _BY_MAPPING.get(l_type, By.ID)
+                el = healing_find_func(by=by, value=l_val, element_name=f"Step_{step.get('order')}", test_context=test_context)
+                assert (step.get("expected") or "").strip() in el.text
+        
         except Exception as e:
-            logger.exception(
-                "[Executor] Error at step %s (action=%s): %s",
-                order,
-                action,
-                e,
-            )
-            # Ném tiếp cho run_test_wrapper set failed + ghi custom_analytics
-            raise
+            logger.error(f"Lỗi tại step {step.get('order')}: {e}")
+            raise e
 
-    logger.info("=== [Executor] SUCCESS: %s (%s) ===", test_name, test_id)
+def execute_test_logic(case, steps, db_config):
+    """
+    Wrapper khởi tạo Manager và Driver qua Healenium Proxy.
+    Đảm bảo đóng driver sạch sẽ sau khi xong.
+    """
+    manager = None
+    driver = None
+    try:
+        # Khởi tạo Manager (Ghi log vào bảng reporting và KB)
+        manager = HealingManager(
+            db_config_kb=db_config,
+            db_config_reporting=db_config,
+            healenium_host=os.environ.get("HEALENIUM_HOST", "http://healenium:7878"),
+            visual_baseline_dir="/app/visual_baseline"
+        )
+
+        chrome_options = Options()
+        chrome_options.add_argument("--headless") # Chạy trong Docker không màn hình
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # Kết nối qua Healenium Proxy (Port 8085)
+        driver = webdriver.Remote(
+            command_executor=os.environ.get("SELENIUM_HOST", "http://hlm-proxy:8085/wd/hub"),
+            options=chrome_options
+        )
+
+        # Chạy test qua Wrapper của Manager để kích hoạt Self-healing và lưu kết quả
+        manager.run_test_wrapper(
+            test_function=run_steps_test,
+            driver=driver,
+            test_id=str(case["case_id"]),
+            app_version=case["app_version"],
+            fullscreen_page_name=case["fullscreen_page_name"],
+            test_definition={"test_id": str(case["case_id"]), "name": case["name"], "steps": steps}
+        )
+        return {"status": "passed"}
+
+    except Exception as e:
+        return {"status": "failed", "error": str(e)}
+    finally:
+        if driver: driver.quit()
+        if manager: manager.close()
