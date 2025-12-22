@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { X, Copy, CheckCircle2, XCircle, AlertTriangle, Zap } from "lucide-react";
+import { X, Copy, CheckCircle2, XCircle, AlertTriangle, Zap, Wand2 } from "lucide-react";
 import testCaseService from "../../services/testCaseService";
 
 export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
@@ -134,7 +134,7 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                   <div className="mt-1 text-sm font-semibold flex items-center gap-1">
                     {detail.heal_attempted ? (
                       detail.heal_success ? (
-                        <span className="text-emerald-600 flex items-center gap-1"><Zap className="h-3 w-3"/> Success</span>
+                        <span className="text-emerald-600 flex items-center gap-1"><Wand2 className="h-3.5 w-3.5" /> Success</span>
                       ) : (
                         <span className="text-rose-600 flex items-center gap-1"><AlertTriangle className="h-3 w-3"/> Failed</span>
                       )
@@ -172,7 +172,9 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
               {detail.heal_attempted && (
                 <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
                   <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
-                    <Zap className="h-4 w-4 text-amber-500" />
+                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+                       <Wand2 className="h-3.5 w-3.5" />
+                    </div>
                     Self-Healing Events
                   </h3>
                   
@@ -185,13 +187,13 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                             <div>
                                 <span className="text-xs text-slate-400 uppercase">Old Locator</span>
                                 <div className="mt-1 p-2 bg-rose-50 border border-rose-100 text-rose-700 text-xs font-mono rounded break-all">
-                                   {event.old_locator || "//button[@id='old-btn']"}
+                                   {event.locator_old || "—"}
                                 </div>
                             </div>
                             <div>
                                 <span className="text-xs text-slate-400 uppercase">New Locator</span>
                                 <div className="mt-1 p-2 bg-emerald-50 border border-emerald-100 text-emerald-700 text-xs font-mono rounded break-all">
-                                   {event.new_locator || "//button[contains(@class, 'new-btn')]"}
+                                   {event.locator_new || "—"}
                                 </div>
                             </div>
                          </div>

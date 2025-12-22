@@ -8,6 +8,7 @@ import {
   Trash,
   Filter,
   Search,
+  User
 } from "lucide-react";
 import CreateProjectModal from "../../components/projects/CreateProjectModal";
 import { formatDate } from "../../utils/formatDate";
@@ -648,7 +649,9 @@ export default function ProjectDetailPage() {
                       </div>
 
                       <div className="mt-2 flex items-center gap-2">
-                        <div className="h-8 w-8 rounded-full bg-slate-200" />
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                          <User className="h-5 w-5" strokeWidth={2} />
+                        </div>
                         <span className="text-slate-800">{ownerName}</span>
                       </div>
                     </div>
@@ -921,7 +924,9 @@ export default function ProjectDetailPage() {
 
                                   <td className="px-4 py-3">
                                     <div className="flex items-center gap-3">
-                                      <div className="h-8 w-8 rounded-full bg-slate-200" />
+                                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                                        <User className="h-5 w-5" strokeWidth={2} />
+                                      </div>
                                       <span className="text-slate-800">
                                         {fullName}
                                       </span>

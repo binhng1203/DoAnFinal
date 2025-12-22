@@ -1,13 +1,19 @@
 import React, { useEffect, useState } from "react";
-import { Search, Pencil, Trash, Play, ChevronDown, Zap } from "lucide-react";
+import { Search, Pencil, Trash, Play, ChevronDown, Sparkles, User, Wand2 } from "lucide-react";
 import { formatDate } from "../../utils/formatDate";
 import testCaseService from "../../services/testCaseService";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
+import SuccessModal from "../../components/common/SuccessModal";
+import ErrorModal from "../../components/common/ErrorModal";
 
 export default function TestCaseListPage() {
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState({ title: "", msg: "" });
+  const [isErrorOpen, setIsErrorOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState({ title: "", msg: "" });
   const { projectId, suiteId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
@@ -88,11 +94,19 @@ export default function TestCaseListPage() {
       const res = await testCaseService.runTestCase(testCaseId);
       console.log("Run testcase OK:", res);
 
-      alert("Run test case thành công!");
+      setSuccessMessage({
+        title: "Execution Started",
+        msg: "Test case is running in the background with Self-healing enabled."
+      });
+      setIsSuccessOpen(true);
     } catch (err) {
       console.error("Run testcase ERROR:", err);
       console.error("Response:", err.response?.status, err.response?.data);
-      alert("Run test case thất bại. Vui lòng thử lại.");
+      setErrorMessage({
+        title: "Execution Failed",
+        msg: "Unable to run this test case. Please check the console for details."
+      });
+      setIsErrorOpen(true);
     } finally {
       setRunningId(null);
     }
@@ -125,11 +139,19 @@ export default function TestCaseListPage() {
       const res = await testCaseService.runProactiveTestCase(payload);
       console.log("Run Proactive OK:", res);
 
-      alert("Run Proactive thành công!");
+      setSuccessMessage({
+        title: "Analysis Started",
+        msg: "Proactive Fault Analysis has been triggered successfully."
+      });
+      setIsSuccessOpen(true);
 
     } catch (err) {
       console.error("Run Proactive ERROR:", err);
-      alert("Run Proactive thất bại. Vui lòng kiểm tra lại server 8005.");
+      setErrorMessage({
+        title: "Connection Error",
+        msg: "Cannot connect to Proactive Service (Port 8005)."
+      });
+      setIsErrorOpen(true);
     } finally {
       setRunningId(null);       // Tắt loading
       setCaseIdForProactive(null);
@@ -352,7 +374,20 @@ export default function TestCaseListPage() {
                           <tr key={testCaseId}>
                             <td className="px-4 py-3 text-xs">{stt}</td>
                             <td className="px-4 py-3">
-                              {tc.name || "—"}
+                              <span
+                                onClick={() =>
+                                  navigate(
+                                    `/projects/${projectId}/suites/${suiteId}/test-cases/${testCaseId}`,
+                                    {
+                                      state: { projectName, suiteName },
+                                    }
+                                  )
+                                }
+                                // Style mới: Không đậm (bỏ font-medium), không gạch chân (bỏ hover:underline)
+                                className="cursor-pointer text-slate-700 hover:text-primary transition-colors"
+                              >
+                                {tc.name || "—"}
+                              </span>
                             </td>
 
                             {/* Priority */}
@@ -375,10 +410,13 @@ export default function TestCaseListPage() {
                             {/* Author */}
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
-                                <div className="h-7 w-7 rounded-full bg-slate-200" />
-                                <span>
-                                  {tc.creator_username ||
-                                    "—"}
+                                {/* Avatar Icon User */}
+                                <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                                  <User className="h-4 w-4" strokeWidth={2} />
+                                </div>
+
+                                <span className="text-slate-700 text-xs font-medium">
+                                  {tc.creator_username || "—"}
                                 </span>
                               </div>
                             </td>
@@ -544,6 +582,20 @@ export default function TestCaseListPage() {
         onClose={() => setIsProactiveOpen(false)}
         onRun={handleConfirmProactive}
       />
+
+      <SuccessModal
+        isOpen={isSuccessOpen}
+        onClose={() => setIsSuccessOpen(false)}
+        title={successMessage.title}
+        message={successMessage.msg}
+      />
+
+      <ErrorModal
+        isOpen={isErrorOpen}
+        onClose={() => setIsErrorOpen(false)}
+        title={errorMessage.title}
+        message={errorMessage.msg}
+      />
     </>
   );
 }
@@ -592,8 +644,8 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
             }}
             className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-              <Play className="h-3.5 w-3.5 fill-current" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+              <Wand2 className="h-3.5 w-3.5 fill-current" />
             </div>
             <div className="flex flex-col items-start">
                <span className="font-semibold text-slate-800">Self-healing</span>
@@ -608,8 +660,8 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
             }}
             className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
           >
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-100 text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-              <Zap className="h-3.5 w-3.5 fill-current" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
+              <Sparkles className="h-3.5 w-3.5 fill-current" />
             </div>
             <div className="flex flex-col items-start">
                <span className="font-semibold text-slate-800">Proactive</span>

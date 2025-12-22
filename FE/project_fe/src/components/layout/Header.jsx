@@ -1,4 +1,5 @@
 import React from "react";
+import { User } from "lucide-react";
 
 const Header = () => {
   return (
@@ -23,7 +24,9 @@ const Header = () => {
         </div>
 
         <div className="flex items-center space-x-4">
-          <div className="h-9 w-9 rounded-full bg-slate-300" />
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500 cursor-pointer hover:bg-slate-50 transition-colors">
+            <User className="h-5 w-5" strokeWidth={2} />
+          </div>
         </div>
       </div>
     </header>

@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { Pencil, Trash } from "lucide-react";
+import { Pencil, Trash, User } from "lucide-react";
 
 import Button from "../../components/ui/Button";
 import ProjectCard from "../../components/projects/ProjectCard.jsx";
@@ -263,7 +263,9 @@ export default function ProjectsPage() {
                       {/* Owner */}
                       <td className="px-6 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-slate-200" />
+                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                            <User className="h-4 w-4" strokeWidth={2} />
+                          </div>
                           <span className="text-slate-700 text-sm">
                             {p.role}
                           </span>
