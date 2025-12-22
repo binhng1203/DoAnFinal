@@ -1,5 +1,5 @@
 import React from "react";
-import { Pencil, Trash } from "lucide-react";
+import { Pencil, Trash, User } from "lucide-react";
 
 export default function ProjectCard({
   name,
@@ -39,8 +39,12 @@ export default function ProjectCard({
         {/* Left info */}
         <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-full bg-slate-200" />
-            <span className="text-xs text-slate-700">{role}</span>
+            {/* Avatar Mới (User Icon) */}
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+              <User className="h-4 w-4" strokeWidth={2} />
+            </div>
+            
+            <span className="text-xs text-slate-700 font-medium">{role}</span>
           </div>
 
           <p className="text-[11px] text-slate-500">Created {createdAt}</p>

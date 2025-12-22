@@ -2,7 +2,7 @@
 const ROUTES = {
   LOGIN: "/login",
   SIGNUP: "/signup",
-  DASHBOARD: "/",
+  DASHBOARD: "/dashboard",
   PROJECTS: "/projects",
   PROJECT_DETAIL: "/projects/:id",
   TEST_CASES: "/projects/:projectId/suites/:suiteId/test-cases",

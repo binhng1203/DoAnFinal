@@ -1,7 +1,7 @@
 // src/pages/TestCases/TestCaseDetailPage.jsx
 import React, { useEffect, useState } from "react";
-import { useParams, useLocation } from "react-router-dom";
-import { Pencil, Trash, Play, MoreHorizontal, X, AlertTriangle, CheckCircle2, ChevronDown, Zap} from "lucide-react";
+import { useParams, useLocation, useNavigate } from "react-router-dom";
+import { Pencil, Trash, Play, MoreHorizontal, X, AlertTriangle, CheckCircle2, ChevronDown, Sparkles, RefreshCw, Wand2} from "lucide-react";
 import { formatDate } from "../../utils/formatDate";
 import testCaseService from "../../services/testCaseService";
 import ConfirmModal from "../../components/common/ConfirmModal";
@@ -9,8 +9,15 @@ import CreateTestCaseModal from "../../components/test-cases/CreateTestCaseModal
 import ProactiveRunModal from "../../components/test-cases/ProactiveRunModal";
 import RunDetailModal from "../../components/test-cases/RunDetailModal";
 import ProactiveDetailModal from "../../components/test-cases/ProactiveDetailModal";
+import SuccessModal from "../../components/common/SuccessModal";
+import ErrorModal from "../../components/common/ErrorModal";
 
 export default function TestCaseDetailPage() {
+  const [isSuccessOpen, setIsSuccessOpen] = useState(false);
+  const [successMessage, setSuccessMessage] = useState({ title: "", msg: "" });
+  const [isErrorOpen, setIsErrorOpen] = useState(false);
+  const [errorMessage, setErrorMessage] = useState({ title: "", msg: "" });
+  const navigate = useNavigate();
   const { projectId, suiteId, caseId } = useParams();
   const location = useLocation();
 
@@ -138,7 +145,7 @@ export default function TestCaseDetailPage() {
   };
 
 
- const [proactiveReports, setProactiveReports] = useState([]);
+  const [proactiveReports, setProactiveReports] = useState([]);
   const [proactiveLoading, setProactiveLoading] = useState(false);
   const [proactivePagination, setProactivePagination] = useState({
     total_items: 0,
@@ -221,11 +228,19 @@ export default function TestCaseDetailPage() {
       const res = await testCaseService.runTestCase(testCaseId);
       console.log("Run testcase (detail) OK:", res);
 
-      alert("Run test case thành công!");
+      setSuccessMessage({
+        title: "Execution Started",
+        msg: "The Self-healing test run has been started successfully. Please wait for the report."
+      });
+      setIsSuccessOpen(true);
     } catch (err) {
       console.error("Run testcase (detail) ERROR:", err);
       console.error("Response:", err.response?.status, err.response?.data);
-      alert("Run test case thất bại. Vui lòng thử lại.");
+      setErrorMessage({
+        title: "Execution Failed",
+        msg: err.response?.data?.detail || "Could not start the test run. Please check the system."
+      });
+      setIsErrorOpen(true);
     } finally {
       setRunning(false);
     }
@@ -251,11 +266,19 @@ export default function TestCaseDetailPage() {
       };
 
       await testCaseService.runProactiveTestCase(payload);
-      alert("Run Proactive thành công!");
+      setSuccessMessage({
+        title: "Analysis Started",
+        msg: "Proactive analysis initiated. System is scanning for potential risks."
+      });
+      setIsSuccessOpen(true);
 
     } catch (err) {
       console.error("Run Proactive ERROR:", err);
-      alert("Run Proactive thất bại.");
+      setErrorMessage({
+        title: "Analysis Failed",
+        msg: "Failed to trigger Proactive Analysis. Please try again later."
+      });
+      setIsErrorOpen(true);
     } finally {
       setRunning(false); // Tắt loading
     }
@@ -454,16 +477,51 @@ export default function TestCaseDetailPage() {
       {/* HEADER */}
       <div className="flex items-center justify-between">
         <div>
-          <div className="text-xs text-slate-500">
-            Projects <span className="mx-1">›</span>
-            <span className="text-slate-600">{projectName}</span>
-            <span className="mx-1">›</span>
-            <span className="text-slate-600">Test Suites</span>
-            <span className="mx-1">›</span>
-            <span className="text-slate-600">{suiteName}</span>
-            <span className="mx-1">›</span>
-            <span className="text-primary font-medium">{title}</span>
-          </div>
+          {/* BREADCRUMB NAVIGATION (Đã cập nhật style to hơn và click được) */}
+          <h1 className="text-xl text-slate-500 font-medium flex items-center flex-wrap">
+            <button
+              type="button"
+              onClick={() => navigate("/projects")}
+              className="hover:text-primary cursor-pointer transition-colors"
+            >
+              Projects
+            </button>
+            <span className="mx-2 text-slate-400">›</span>
+
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}`)}
+              className="hover:text-primary cursor-pointer transition-colors"
+            >
+              {projectName}
+            </button>
+            <span className="mx-2 text-slate-400">›</span>
+
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}`, {
+                  state: { tab: "testsuite" },
+                })
+              }
+              className="hover:text-primary cursor-pointer transition-colors"
+            >
+              Test Suites
+            </button>
+            <span className="mx-2 text-slate-400">›</span>
+
+            <button
+              type="button"
+              onClick={() => navigate(`/projects/${projectId}/suites/${suiteId}/test-cases`, {
+                  state: { projectName, suiteName } 
+              })}
+              className="hover:text-primary cursor-pointer transition-colors"
+            >
+              {suiteName}
+            </button>
+            <span className="mx-2 text-slate-400">›</span>
+
+            <span className="text-primary font-semibold">{title}</span>
+          </h1>
         </div>
 
         <div className="flex items-center gap-2">
@@ -503,8 +561,8 @@ export default function TestCaseDetailPage() {
                     }}
                     className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                   >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                      <Play className="h-4 w-4 fill-current" />
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                      <Wand2 className="h-4 w-4 fill-current" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span className="font-semibold text-slate-800">Self-healing</span>
@@ -516,8 +574,8 @@ export default function TestCaseDetailPage() {
                     onClick={handleRunProactive}
                     className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                   >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600 group-hover:bg-amber-500 group-hover:text-white transition-colors">
-                      <Zap className="h-4 w-4 fill-current" />
+                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
+                      <Sparkles className="h-4 w-4 fill-current" />
                     </div>
                     <div className="flex flex-col items-start">
                       <span className="font-semibold text-slate-800">Proactive</span>
@@ -655,26 +713,26 @@ export default function TestCaseDetailPage() {
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-2 p-0 w-full">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h2 className="text-sm font-semibold text-slate-800">Test Steps</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Test Steps</h2> 
           <button
-            className="rounded-full bg-slate-900 px-4 py-1.5 text-xs text-white hover:bg-slate-800"
+            className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm shadow-indigo-200"
             onClick={openCreateStepModal}
           >
             + Add Step
           </button>
         </div>
 
-        {/* Table */}
+        {/* Table Test Steps */}
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-200">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> {/* ✅ Header chuẩn */}
               <tr>
-                <th className="px-4 py-3 text-left w-16">Step #</th>
-                <th className="px-4 py-3 text-left">Action</th>
-                <th className="px-4 py-3 text-left w-32">Locator Type</th>
-                <th className="px-4 py-3 text-left w-44">Locator Value</th>
-                <th className="px-4 py-3 text-left w-32">URL</th>
-                <th className="px-4 py-3 text-left w-60">Expected Result</th>
+                <th className="px-4 py-3 w-16">Step #</th>
+                <th className="px-4 py-3">Action</th>
+                <th className="px-4 py-3 w-32">Locator Type</th>
+                <th className="px-4 py-3 w-44">Locator Value</th>
+                <th className="px-4 py-3 w-32">URL</th>
+                <th className="px-4 py-3 w-60">Expected Result</th>
                 <th className="px-4 py-3 text-right w-24">Actions</th>
               </tr>
             </thead>
@@ -727,8 +785,13 @@ export default function TestCaseDetailPage() {
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-slate-800">Test Reports - Self Healing</h2>
-          <button onClick={fetchReports} className="text-xs text-primary hover:underline">
-             Refresh
+          <button 
+            onClick={fetchReports} 
+            disabled={reportLoading}
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 hover:underline disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+            <RefreshCw className={`h-3 w-3 ${reportLoading ? "animate-spin" : ""}`} />
+            {reportLoading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
@@ -760,19 +823,19 @@ export default function TestCaseDetailPage() {
           </div>
         </div>
 
-        {/* 2. EXECUTION HISTORY TABLE (REAL DATA) */}
-        <h3 className="text-sm font-semibold text-slate-800 mb-4">Execution History</h3>
+        {/* 2. EXECUTION HISTORY TABLE */}
+        <h3 className="text-sm font-bold text-slate-800 mb-4">Execution History</h3>
         
         <div className="overflow-x-auto rounded-lg border border-slate-100">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100">
+          <table className="w-full text-sm text-left"> 
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> {/* ✅ Header chuẩn */}
               <tr>
-                <th className="px-4 py-3 text-left">Run ID</th>
+                <th className="px-4 py-3">Run ID</th>
                 <th className="px-4 py-3 text-center">Raw Result</th>
                 <th className="px-4 py-3 text-center">Final Result</th>
                 <th className="px-4 py-3 text-center">Self-healing</th>
-                <th className="px-4 py-3 text-left">Duration</th>
-                <th className="px-4 py-3 text-left">Timestamp</th>
+                <th className="px-4 py-3">Duration</th>
+                <th className="px-4 py-3">Timestamp</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -817,11 +880,11 @@ export default function TestCaseDetailPage() {
                          {item.heal_attempted ? (
                             item.heal_success ? (
                                 <span className="text-blue-600 font-semibold flex items-center justify-center gap-1">
-                                    <Zap className="h-3 w-3" /> Success
+                                  Success
                                 </span>
                             ) : (
                                 <span className="text-orange-600 font-semibold flex items-center justify-center gap-1">
-                                    <AlertTriangle className="h-3 w-3" /> Failed
+                                  Failed
                                 </span>
                             )
                          ) : (
@@ -885,25 +948,30 @@ export default function TestCaseDetailPage() {
       {/* ===================== TEST REPORTS - PROACTIVE FAULT (REAL DATA) ===================== */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+          <h2 className="text-lg font-semibold text-slate-800">
             Test Reports - Proactive Fault
           </h2>
-          <button onClick={fetchProactiveReports} className="text-xs text-primary hover:underline">
-             Refresh
+          <button 
+            onClick={fetchProactiveReports} 
+            disabled={proactiveLoading}
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 hover:underline disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+            <RefreshCw className={`h-3 w-3 ${proactiveLoading ? "animate-spin" : ""}`} />
+            {reportLoading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
         {/* TABLE PROACTIVE */}
         <div className="overflow-x-auto rounded-lg border border-slate-100">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500 border-b border-slate-100">
+          <table className="w-full text-sm text-left"> {/* ✅ Tăng lên text-sm */}
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> {/* ✅ Header chuẩn */}
               <tr>
-                <th className="px-4 py-3 text-left">PR Info</th>
-                <th className="px-4 py-3 text-left">Commit Message</th>
-                <th className="px-4 py-3 text-left">Author</th>
-                <th className="px-4 py-3 text-left">Score</th>
+                <th className="px-4 py-3">PR Info</th>
+                <th className="px-4 py-3">Commit Message</th>
+                <th className="px-4 py-3">Author</th>
+                <th className="px-4 py-3">Score</th>
                 <th className="px-4 py-3 text-center">Status</th>
-                <th className="px-4 py-3 text-left">Timestamp</th>
+                <th className="px-4 py-3">Timestamp</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -1046,6 +1114,20 @@ export default function TestCaseDetailPage() {
           analysisId={selectedProactiveId}
           testId={caseId} // Truyền caseId để làm tham số cho API
         />
+
+        <SuccessModal
+        isOpen={isSuccessOpen}
+        onClose={() => setIsSuccessOpen(false)}
+        title={successMessage.title}
+        message={successMessage.msg}
+      />
+
+      <ErrorModal
+        isOpen={isErrorOpen}
+        onClose={() => setIsErrorOpen(false)}
+        title={errorMessage.title}
+        message={errorMessage.msg}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // src/routes/index.jsx
 import React from "react";
-import { useRoutes } from "react-router-dom";
+import { useRoutes, Navigate } from "react-router-dom";
 import MainLayout from "../layouts/MainLayout";
 import Dashboard from "../pages/Dashboard/Dashboard.jsx";
 import ProjectsPage from "../pages/Projects/ProjectsPage.jsx";
@@ -26,7 +26,8 @@ export default function AppRoutes() {
       path: "/",
       element: <MainLayout />, // LAYOUT CHÍNH
       children: [
-        { index: true, element: <Dashboard /> }, // DASHBOARD = TRANG HOME
+        { index: true, element: <Navigate to="/login" replace /> },
+        { path: "dashboard", element: <Dashboard /> },
         { path: "projects", element: <ProjectsPage /> },
         { path: "projects/:id", element: <ProjectDetailPage /> },
 

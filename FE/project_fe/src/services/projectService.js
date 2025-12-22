@@ -67,7 +67,7 @@ const projectService = {
     return apiClient.delete(`/api/v1/suites/${suiteId}`);
   },
 
-  // ✅ Lấy danh sách member của project
+  // Lấy danh sách member của project
   async getProjectMembers(projectId) {
     // GET http://localhost:8002/api/v1/projects/{projectId}/members
     return apiClient.get(`/api/v1/projects/${projectId}/members`);
