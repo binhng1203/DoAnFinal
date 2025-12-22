@@ -50,14 +50,18 @@ ALTER ROLE app_user SET search_path = custom_analytics, public;
 -- ====================================================================================
 -- PART 4: KB TABLE (Layer 1)
 -- ====================================================================================
-CREATE TABLE IF NOT EXISTS public.healing_knowledge (
+-- 1. Xóa bảng cũ để áp dụng cấu trúc mới
+DROP TABLE IF EXISTS public.healing_knowledge;
+
+-- 2. Tạo bảng chuẩn hóa
+CREATE TABLE public.healing_knowledge (
     id                BIGSERIAL PRIMARY KEY,
-    project_id        VARCHAR(50), 
+    project_id        VARCHAR(100) DEFAULT 'default_project', 
     
-    -- [PHẦN QUAN TRỌNG CHO SUGGESTION LAYER]
-    fingerprint       JSONB NOT NULL,                   -- Dùng cho Variant B (JSONB match)
-    fingerprint_hash  TEXT UNIQUE,                      -- [MỚI] Thêm UNIQUE để lệnh ON CONFLICT hoạt động
-    fingerprint_json  JSONB,                            -- Để tương thích với payload Python
+    -- [FINGERPRINT INFO]
+    -- Hợp nhất fingerprint_json và fingerprint thành 1 cột duy nhất
+    fingerprint       JSONB NOT NULL,                   
+    fingerprint_hash  TEXT UNIQUE NOT NULL,             -- Dùng để so khớp nhanh và ON CONFLICT
 
     -- [LOCATOR INFO]
     old_locator_by    VARCHAR(50) NOT NULL,
@@ -68,13 +72,17 @@ CREATE TABLE IF NOT EXISTS public.healing_knowledge (
     -- [METRICS]
     success_count     INT NOT NULL DEFAULT 0,
     failure_count     INT NOT NULL DEFAULT 0,
-    success_rate      NUMERIC(5,2), 
+    success_rate      NUMERIC(5,2) GENERATED ALWAYS AS (
+        CASE WHEN (success_count + failure_count) = 0 THEN 0 
+        ELSE (success_count::float / (success_count + failure_count)) * 100 
+        END
+    ) STORED, -- Tự động tính % thành công
     avg_repair_ms     BIGINT NOT NULL DEFAULT 0,
 
     -- [TIMESTAMPS]
     last_success_at   TIMESTAMPTZ,
     last_failure_at   TIMESTAMPTZ,
-    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- [SỬA] Đổi tên từ last_updated thành updated_at để khớp với lỗi Python
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_seen_at      TIMESTAMPTZ DEFAULT NOW(),
 
     -- [EXTRA INFO]
@@ -84,14 +92,12 @@ CREATE TABLE IF NOT EXISTS public.healing_knowledge (
     source_type       TEXT DEFAULT 'AUTO',
     manual_override   BOOLEAN DEFAULT FALSE,
 
-    -- [CONSTRAINT NÂNG CAO]
-    -- Giữ constraint này nếu bạn muốn chặn trùng lặp locator
-    CONSTRAINT uq_kb_locators UNIQUE (fingerprint, old_locator_value, new_locator_value)
+    -- [CONSTRAINT]
+    CONSTRAINT uq_kb_locators UNIQUE (fingerprint_hash)
 );
 
--- Phân quyền và tạo Index để truy vấn nhanh
-ALTER TABLE public.healing_knowledge OWNER TO app_user;
-CREATE INDEX IF NOT EXISTS idx_kb_fp_hash ON public.healing_knowledge(fingerprint_hash);
+-- Tạo Index để Suggestion Layer truy vấn cực nhanh
+CREATE INDEX idx_kb_fp_hash ON public.healing_knowledge(fingerprint_hash);
 
 -- ====================================================================================
 -- PART 5: REPORTING TABLES (Layer 3 & 4)

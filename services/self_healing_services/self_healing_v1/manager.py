@@ -102,9 +102,34 @@ class HealingManager:
             return self.find_element(by, value, element_name, **kwargs)
         return wrapped_find
 
-    def _learn_selector(self, element: WebElement, by: str, value: str):
-        pass
+    def _learn_selector(self, element, by, value):
+        """Hàm này chạy khi tìm thấy element thành công."""
+        try:
+            # 1. Kiểm tra xem element này có phải do Healenium tự sửa không?
+            # Healenium thường đánh dấu phần tử đã sửa bằng thuộc tính 'hlm-id'
+            is_healed = element.get_attribute("hlm-id")
+            
+            if is_healed and self.suggestion_layer:
+                logger.info(f"[Manager] ⚡ Phát hiện Healenium đã sửa lỗi cho: {value}")
+                
+                # Lấy xpath hiện tại của phần tử đó để làm 'healed_locator'
+                # Dùng script để lấy xpath chuẩn của phần tử vừa tìm được
+                current_xpath = self.driver.execute_script(
+                    "function getPath(e){if(e.id!=='')return 'id(\"'+e.id+'\")';if(e===document.body)return e.tagName;var x=0;var s=e.parentNode.childNodes;for(var i=0;i<s.length;i++){var t=s[i];if(t===e)return getPath(e.parentNode)+'/'+e.tagName+'['+(x+1)+']';if(t.nodeType===1&&t.tagName===e.tagName)x++}} return getPath(arguments[0]);", 
+                    element
+                )
 
+                # 2. Lưu tri thức 'ké' từ Healenium vào hệ thống KB của Xuyn
+                self.suggestion_layer.report_successful_heal(
+                    broken_locator=(by, value),
+                    healed_locator=("xpath", current_xpath),
+                    page_url=self.driver.current_url,
+                    score=1.0, # Healenium làm thì mình mặc định là 100% đúng
+                    engine_name="healenium_sync"
+                )
+        except Exception:
+            pass # Tránh làm gián đoạn luồng test chính
+            
     def run_test_wrapper(
         self,
         test_function: Callable,
