@@ -38,10 +38,7 @@ class SuggestionLayer:
         self.cloud_kb_client = cloud_kb_client
         self.last_fingerprint: Optional[Dict[str, Any]] = None
         logger.info(f"[SuggestionLayer] Initialized (Enabled: {self.enabled})")
-    # ==========================================================================
-    # [QUAN TRỌNG] Hàm này đã được sửa để nhận đủ 4 tham số từ Manager
-    # và trả về cấu trúc khớp với DB (Fix lỗi KB Missed)
-    # ==========================================================================
+
     def generate_fingerprint(
         self, 
         page_source: str, 
@@ -120,60 +117,30 @@ class SuggestionLayer:
         try: return len(driver.find_elements(by, value)) > 0
         except: return False
 
-    def report_successful_heal(self, *args, **kwargs):
-        pass
-    def report_successful_heal(
-        self, 
-        broken_locator: Tuple[str, str], 
-        healed_locator: Tuple[str, str], 
-        page_url: str,
-        score: float,
-        engine_name: str = "lcs", 
-        repair_time_ms: int = 0
-    ):
-        """
-        Ghi nhận kết quả healing khớp 100% với bảng public.healing_knowledge.
-        """
-        if not self.cloud_kb_client or not self.cloud_kb_client.enabled:
+    def report_successful_heal(self, broken_locator, healed_locator, page_url, score, engine_name="lcs", repair_time_ms=0):
+        logger.info(f"[SuggestionLayer] 🧠 BẮT ĐẦU lưu tri thức: {broken_locator[1]} -> {healed_locator[1]}")
+        
+        if not self.enabled:
+            logger.warning("[SuggestionLayer] ⚠️ Bỏ qua vì SuggestionLayer đang Disabled.")
             return
 
         try:
-            old_by, old_val = broken_locator
-            new_by, new_val = healed_locator
-
-            # 1. Tạo Fingerprint (Sử dụng cấu trúc đồng bộ với Manager và Client)
-            fingerprint_dict = {
+            # Sử dụng chính xác cấu trúc mà Client mong đợi
+            fp_dict = {
                 "page_url": page_url,
-                "locator_by": old_by,
-                "locator_value": old_val
+                "locator_by": broken_locator[0],
+                "locator_value": broken_locator[1]
             }
             
-            # Tạo Hash phục vụ cột fingerprint_hash (Variant A)
-            fp_json = json.dumps(fingerprint_dict, sort_keys=True)
-            fp_hash = hashlib.sha256(fp_json.encode()).hexdigest()
-
-            # 2. Chuẩn bị payload khớp TÊN CỘT trong DB của bạn
-            # Chú ý: Sử dụng 'last_updated' thay vì 'updated_at'
-            payload = {
-                "fingerprint_hash": fp_hash,
-                "fingerprint_json": fingerprint_dict, # Để client bọc Json() sau
-                "old_locator_by": old_by,
-                "old_locator_value": old_val,
-                "new_locator_by": new_by,
-                "new_locator_value": new_val,
-                "last_score": score,
-                "last_engine": engine_name,
-                "avg_repair_ms": repair_time_ms,
-                "source_type": "self_healing_v1",
-                "last_updated": datetime.now().isoformat(),
-                "project_id": None # Sẽ được resolve bên trong Client
-            }
-
-            logger.info(f"[SuggestionLayer] 🧠 Đang lưu tri thức mới: {old_val} -> {new_val}")
-            
-            # 3. Gửi sang Client để thực hiện INSERT/UPDATE
-            if hasattr(self.cloud_kb_client, "save_healing_result"):
-                self.cloud_kb_client.save_healing_result(payload)
-                
+            # GỌI XUỐNG CLIENT
+            self.cloud_kb_client.update_knowledge(
+                old_locator=broken_locator,
+                new_locator=healed_locator,
+                fingerprint=fp_dict,
+                page_url=page_url,
+                engine=engine_name,
+                score=score,
+                duration_ms=repair_time_ms
+            )
         except Exception as e:
-            logger.error(f"[SuggestionLayer] Lỗi chuẩn bị dữ liệu KB: {e}")
+            logger.error(f"[SuggestionLayer] ❌ Lỗi khi chuyển tiếp tri thức tới Client: {e}")
