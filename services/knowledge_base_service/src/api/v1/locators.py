@@ -1,91 +1,94 @@
-from flask import Blueprint, request, jsonify, current_app
-from flask_jwt_extended import jwt_required, get_jwt_identity
-from sqlalchemy import Table, select, desc, or_
+from flask import Blueprint, request, jsonify
+from sqlalchemy import Table, select, desc, or_, func
 from src.extensions import db
 from src.schemas.knowledge import HealingKnowledgeSchema
+import logging
+
+# Khởi tạo logger để theo dõi lỗi trong terminal backend
+logger = logging.getLogger(__name__)
 
 locators_bp = Blueprint('locators', __name__)
 
-# Biến global để lưu bảng sau khi reflect (tránh reflect lại nhiều lần)
 _healing_table = None
 
 def get_healing_table():
     """
     Hàm helper để load bảng động (Lazy Loading).
-    Chỉ reflect DB khi cần dùng đến lần đầu tiên.
+    Sử dụng reflection để đọc cấu trúc từ Database.
     """
     global _healing_table
     if _healing_table is None:
-        # Tự động đọc cấu trúc bảng 'healing_knowledge' từ schema 'public'
-        _healing_table = Table(
-            'healing_knowledge', 
-            db.metadata, 
-            autoload_with=db.engine, 
-            schema='public',
-            extend_existing=True
-        )
+        try:
+            _healing_table = Table(
+                'healing_knowledge', 
+                db.metadata, 
+                autoload_with=db.engine, 
+                schema='public',
+                extend_existing=True
+            )
+        except Exception as e:
+            logger.error(f"Lỗi phản chiếu bảng (Table Reflection): {str(e)}")
+            return None
     return _healing_table
 
 # ----------------------------------------------------------------------
-# API 1: Xem danh sách
+# API 1: Xem danh sách (Có phân trang và tìm kiếm)
 # ----------------------------------------------------------------------
 @locators_bp.route('', methods=['GET'])
-# @jwt_required()
 def get_locators_list():
-    # current_user_id = get_jwt_identity()
-
-    # 1. Load bảng
     t = get_healing_table()
+    if t is None:
+        return jsonify({"error": "Không thể kết nối với bảng dữ liệu"}), 500
 
-    # 2. Chuẩn bị query params
-    keyword = request.args.get('keyword')
-    source_type = request.args.get('source_type')
-    app_version = request.args.get('app_version')
-    page = request.args.get('page', 1, type=int)
-    limit = request.args.get('limit', 10, type=int)
-    offset = (page - 1) * limit
+    try:
+        # 1. Lấy tham số phân trang và lọc
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 10, type=int)
+        offset = (page - 1) * limit
+        keyword = request.args.get('keyword')
+        source_type = request.args.get('source_type')
 
-    # 3. Xây dựng câu Query (Dùng SQLAlchemy Core)
-    # select(t) tương đương SELECT * FROM public.healing_knowledge
-    stmt = select(t)
+        # 2. Xây dựng câu Query cơ bản
+        stmt = select(t)
 
-    # Filter
-    if keyword:
-        search = f"%{keyword}%"
-        stmt = stmt.where(or_(
-            t.c.old_locator_value.ilike(search),
-            t.c.new_locator_value.ilike(search),
-            t.c.project_id.ilike(search)
-        ))
-    
-    if source_type:
-        stmt = stmt.where(t.c.source_type == source_type)
+        # Lọc theo từ khóa (Search)
+        if keyword:
+            search = f"%{keyword}%"
+            stmt = stmt.where(or_(
+                t.c.old_locator_value.ilike(search),
+                t.c.new_locator_value.ilike(search),
+                t.c.project_id.ilike(search)
+            ))
         
-    if app_version:
-        stmt = stmt.where(t.c.app_version == app_version)
+        # Lọc theo nguồn (Source Type)
+        if source_type and source_type != 'All':
+            stmt = stmt.where(t.c.source_type == source_type)
 
-    # Sort & Pagination
-    # Đếm tổng số bản ghi (query riêng để tối ưu)
-    count_stmt = select(db.func.count()).select_from(stmt.subquery())
-    total = db.session.execute(count_stmt).scalar()
+        # 3. Tính tổng số bản ghi (Cần thiết cho Frontend hiển thị số trang)
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = db.session.execute(count_stmt).scalar()
 
-    # Thêm sort và limit vào câu query chính
-    stmt = stmt.order_by(desc(t.c.last_updated))
-    stmt = stmt.limit(limit).offset(offset)
+        # 4. Sắp xếp theo updated_at và thực hiện phân trang
+        stmt = stmt.order_by(desc(t.c.updated_at)) 
+        stmt = stmt.limit(limit).offset(offset)
 
-    # 4. Thực thi
-    result = db.session.execute(stmt).fetchall()
+        # 5. Thực thi truy vấn
+        result = db.session.execute(stmt).fetchall()
 
-    # 5. Trả về
-    return jsonify({
-        "total": total,
-        "pages": (total + limit - 1) // limit,
-        "current_page": page,
-        # Dump dữ liệu Row vào Schema
-        "items": HealingKnowledgeSchema(many=True).dump(result)
-    }), 200
+        return jsonify({
+            "total": total,
+            "pages": (total + limit - 1) // limit,
+            "current_page": page,
+            "items": HealingKnowledgeSchema(many=True).dump(result)
+        }), 200
 
+    except Exception as e:
+        logger.error(f"Lỗi thực thi API danh sách: {str(e)}")
+        return jsonify({"error": "Lỗi nội bộ server", "message": str(e)}), 500
 
+# ----------------------------------------------------------------------
+# API 2: Xem chi tiết một bản ghi
+# ----------------------------------------------------------------------
 # ----------------------------------------------------------------------
 # API 2: Xem chi tiết
 # ----------------------------------------------------------------------
