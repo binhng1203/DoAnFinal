@@ -1,0 +1,70 @@
+# ===================================================================
+# ==                 CORE FRAMEWORKS & LIBRARIES                   ==
+# ===================================================================
+# --- Web Server & API ---
+# Dùng cho Module 1 để nhận webhook từ Git
+Flask==3.0.3
+# Dùng cho Module 2 để xây dựng API cho Cloud Knowledge Base
+fastapi==0.104.1
+# Server ASGI để chạy ứng dụng FastAPI
+uvicorn[standard]==0.24.0
+
+# --- Database ---
+# Driver để tương tác với cơ sở dữ liệu MongoDB
+pymongo==4.7.2
+
+# ===================================================================
+# ==              MODULE 1 - PROACTIVE FAULT PREVENTION            ==
+# ===================================================================
+# Git handling & diff analysis
+GitPython==3.1.43
+whatthepatch==1.0.5
+# Fuzzy matching cho impact analyzer
+thefuzz[speedup]==0.22.1
+beautifulsoup4>=4.12.0
+# Testing & reporting
+pytest==8.4.2
+pytest-json-report==1.5.0
+lxml
+
+# UI automation (cho test thực thi)
+selenium==4.24.0
+
+# ===================================================================
+# ==                   MODULE 2 - SELF-HEALING                     ==
+# ===================================================================
+
+# --- Machine Learning & Data Processing ---
+# Cung cấp các mô hình ML cho Lớp Quyết định (Adaptive Confidence Model)
+scikit-learn==1.3.2
+# Thư viện nền tảng cho tính toán khoa học
+numpy==1.26.2
+
+# --- Visual Validation (OpenCV) ---
+# Thư viện xử lý ảnh chính (tiền xử lý ảnh)
+opencv-python==4.8.1.78
+# Cung cấp thuật toán SSIM để so sánh ảnh một cách cao cấp
+scikit-image==0.22.0
+
+# ===================================================================
+# ==                  TESTING & UTILITIES                          ==
+# ===================================================================
+
+# --- Testing & Reporting ---
+# Framework để viết và chạy các unit test, integration test
+pytest==8.4.2
+# Plugin cho pytest để tạo báo cáo dưới dạng JSON
+pytest-json-report==1.5.0
+
+# --- General Utilities ---
+# Để thực hiện các yêu cầu HTTP (ví dụ: gọi API của Cloud KB)
+requests==2.31.0
+# Thư viện phụ thuộc của requests
+charset-normalizer==3.3.2
+# (Tùy chọn) Hỗ trợ tương thích múi giờ
+tzdata==2025.1
+
+psycopg2-binary
+scikit-fuzzy
+
+lxml
