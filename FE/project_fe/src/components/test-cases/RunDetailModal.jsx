@@ -199,7 +199,7 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                          </div>
                          <div className="mt-3 flex gap-4 text-xs">
                             <span className="text-slate-500">Confidence: <b className="text-emerald-600">{event.confidence || "95%"}</b></span>
-                            <span className="text-slate-500">Method: <b>{event.method || "AI_Heal"}</b></span>
+                            <span className="text-slate-500">Method: <b>{event.chosen_source || "—"}</b></span>
                          </div>
                       </div>
                     ))
