@@ -712,7 +712,7 @@ export default function TestCaseDetailPage() {
         {/* Table Test Steps */}
         <div className="overflow-x-auto">
           <table className="w-full text-base text-left">
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> {/* ✅ Header chuẩn */}
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> 
               <tr>
                 <th className="px-5 py-2.5 w-14">Step</th>
                 <th className="px-5 py-2.5 w-36">Action</th>
@@ -962,7 +962,7 @@ export default function TestCaseDetailPage() {
         {/* TABLE PROACTIVE */}
         <div className="overflow-x-auto rounded-lg border border-slate-100">
           <table className="w-full text-base text-left">
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> {/* ✅ Header chuẩn */}
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100">
               <tr>
                 <th className="px-5 py-2.5">PR Info</th>
                 <th className="px-5 py-2.5">Commit Message</th>
@@ -974,44 +974,48 @@ export default function TestCaseDetailPage() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {proactiveLoading ? (
-                 <tr><td colSpan={6} className="text-center py-4 text-slate-500">Đang tải dữ liệu...</td></tr>
+                 <tr><td colSpan={6} className="text-center py-6 text-slate-500">Đang tải dữ liệu...</td></tr>
               ) : proactiveReports.length === 0 ? (
-                 <tr><td colSpan={6} className="text-center py-4 text-slate-500 italic">Chưa có báo cáo nào.</td></tr>
+                 <tr><td colSpan={6} className="text-center py-6 text-slate-500 italic">Chưa có báo cáo nào.</td></tr>
               ) : (
                 proactiveReports.map((item, idx) => (
                   <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer"
                   onClick={() => handleOpenProactiveDetail(item)}>
-                    {/* Cột 1: PR Number (Kết hợp Icon Github nếu muốn) */}
+                    
+                    {/* Cột 1: PR Number (Fix null hiển thị —) */}
                     <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2">
-                         <span className="font-mono font-bold text-blue-600">#{item.pr_number}</span>
+                         <span className="font-mono font-bold text-blue-600">
+                            {item.pr_number ? `#${item.pr_number}` : "—"}
+                         </span>
                       </div>
                     </td>
 
-                    {/* Cột 2: Commit Message (Cắt ngắn nếu dài) */}
-                    <td className="px-5 py-2.5 max-w-[200px] truncate" title={item.commit_msg}>
-                      <span className="text-slate-700">{item.commit_msg || "—"}</span>
+                    {/* Cột 2: Commit Message */}
+                    <td className="px-5 py-2.5 max-w-[240px] truncate" title={item.commit_msg}>
+                      <span className="text-slate-700 font-medium">
+                        {item.commit_msg || "—"}
+                      </span>
                     </td>
 
                     {/* Cột 3: Author */}
                     <td className="px-5 py-2.5">
-                       <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
+                       <span className="px-2.5 py-1 bg-slate-100 rounded text-slate-600 font-medium text-sm">
                          {item.author || "Unknown"}
                        </span>
                     </td>
 
-                    {/* Cột 4: Score (Dùng lại helper renderScoreBar cũ) */}
+                    {/* Cột 4: Score */}
                     <td className="px-5 py-2.5">
-                      {/* JSON trả về confidence_score, ta truyền vào hàm render cũ */}
                       {renderScoreBar(item.confidence_score)}
                     </td>
 
-                    {/* Cột 5: Status (Dùng lại helper renderProactiveStatus cũ) */}
+                    {/* Cột 5: Status */}
                     <td className="px-5 py-2.5 text-center">
                       {renderProactiveStatus(item.status)}
                     </td>
 
-                    {/* Cột 6: Timestamp */}
+                    {/* Cột 6: Timestamp (JSON mới dùng started_at) */}
                     <td className="px-5 py-2.5 text-slate-500">
                       {formatDate(item.started_at)}
                     </td>

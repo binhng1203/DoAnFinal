@@ -1,6 +1,6 @@
 // src/components/test-cases/ProactiveDetailModal.jsx
-import React, { useEffect, useState } from "react";
-import { X, CheckCircle2, AlertTriangle, FileCode, Search, Target, Zap, Clock } from "lucide-react";
+import React, { useEffect, useState, useMemo } from "react";
+import { X, CheckCircle2, AlertTriangle } from "lucide-react";
 import testCaseService from "../../services/testCaseService";
 
 export default function ProactiveDetailModal({ isOpen, onClose, analysisId, testId }) {
@@ -31,19 +31,38 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
     }
   };
 
+  // ✅ FIX LỖI: Di chuyển useMemo lên TRƯỚC khi return null
+  
+  // 1. Helper tính toán thống kê
+  const stats = useMemo(() => {
+    if (!detail?.ui_changes) return { added: 0, modified: 0, deleted: 0, total: 0 };
+    
+    // API trả về object phân loại sẵn
+    const { added = [], modified = [], deleted = [] } = detail.ui_changes;
+    
+    return {
+      added: added.length,
+      modified: modified.length,
+      deleted: deleted.length,
+      total: added.length + modified.length + deleted.length
+    };
+  }, [detail]);
+
+  // 2. Helper gộp mảng để hiển thị danh sách
+  const allChanges = useMemo(() => {
+    if (!detail?.ui_changes) return [];
+    const { added = [], modified = [], deleted = [] } = detail.ui_changes;
+
+    return [
+        ...added.map(c => ({ ...c, change_type: 'added' })),
+        ...modified.map(c => ({ ...c, change_type: 'modified' })),
+        ...deleted.map(c => ({ ...c, change_type: 'deleted' }))
+    ];
+  }, [detail]);
+
+  // ✅ Sau khi khai báo hết Hooks mới được return
   if (!isOpen) return null;
 
-  // Helper tính toán thống kê UI Changes
-  const getChangeStats = (changes = []) => {
-    return {
-      added: changes.filter(c => c.change_type === 'added').length,
-      modified: changes.filter(c => c.change_type === 'modified').length,
-      deleted: changes.filter(c => c.change_type === 'deleted').length,
-      total: changes.length
-    };
-  };
-
-  // Helper render badge trạng thái
   const renderStatusBadge = (status) => {
     const s = (status || "").toUpperCase();
     if (s === "PASS") return <span className="bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full">PASS</span>;
@@ -51,11 +70,10 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
     return <span className="bg-slate-400 text-white text-xs font-bold px-3 py-1 rounded-full">{s}</span>;
   };
 
-  // Component con: Pipeline Timeline Item
-  const TimelineItem = ({ label, icon: Icon, active }) => (
+  const TimelineItem = ({ label, active }) => (
     <div className="flex flex-col items-center gap-2 relative z-10">
       <div className={`h-8 w-8 rounded-full flex items-center justify-center border-2 ${active ? 'border-emerald-500 bg-white text-emerald-500' : 'border-slate-200 bg-slate-50 text-slate-300'}`}>
-        {active ? <CheckCircle2 className="h-5 w-5" /> : (Icon ? <Icon className="h-4 w-4" /> : <div className="h-2 w-2 rounded-full bg-slate-300" />)}
+        {active ? <CheckCircle2 className="h-5 w-5" /> : <div className="h-2 w-2 rounded-full bg-slate-300" />}
       </div>
       <span className={`text-[10px] font-medium uppercase ${active ? 'text-emerald-600' : 'text-slate-400'}`}>{label}</span>
     </div>
@@ -72,7 +90,6 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
             {!loading && detail && (
                 <>
                     {renderStatusBadge(detail.status)}
-                    {/* Score Circle Badge */}
                     <div className="flex items-center justify-center h-8 w-8 rounded-full border-2 border-rose-500 text-rose-500 text-xs font-bold">
                         {detail.confidence?.score || 0}
                     </div>
@@ -103,7 +120,7 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                             <div className="flex items-center gap-1 font-mono">
                                 <span>{detail.pr_info?.head_sha?.substring(0,7) || "—"}</span>
                                 <span>→</span>
-                                <span>...</span>
+                                <span>{detail.pr_info?.base_sha?.substring(0,7) || "base"}</span>
                             </div>
                         </div>
                          <div>
@@ -111,24 +128,22 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                             <span className="font-medium text-slate-700">{detail.pr_info?.author || "—"}</span>
                         </div>
                         <div>
-                            <span className="block text-slate-400 mb-1">Created At</span>
+                            <span className="block text-slate-400 mb-1">Started At</span>
                             <span className="font-medium text-slate-700">{detail.timestamps?.start ? new Date(detail.timestamps.start).toLocaleString() : "—"}</span>
                         </div>
                     </div>
 
-                    {/* 2. PIPELINE TIMELINE (Mock Visual based on Figma) */}
+                    {/* 2. PIPELINE TIMELINE */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <h3 className="text-sm font-bold text-slate-800 mb-4">Pipeline Timeline</h3>
                         <div className="relative flex justify-between items-center px-4">
-                            {/* Connector Line */}
                             <div className="absolute top-[15px] left-8 right-8 h-0.5 bg-slate-100 z-0" />
-                            
-                            <TimelineItem label="Start" active={true} />
-                            <TimelineItem label="Diff" active={true} />
-                            <TimelineItem label="Scan" active={true} />
-                            <TimelineItem label="Predict" active={true} />
-                            <TimelineItem label="Execute" active={detail.status !== "SKIPPED"} />
-                            <TimelineItem label="Score" active={detail.confidence?.score !== null} />
+                            <TimelineItem label="Start" active={!!detail.timestamps?.start} />
+                            <TimelineItem label="Diff" active={!!detail.timestamps?.after_diff} />
+                            <TimelineItem label="Scan" active={!!detail.timestamps?.after_scan} />
+                            <TimelineItem label="Predict" active={!!detail.timestamps?.after_predict} />
+                            <TimelineItem label="Execute" active={!!detail.timestamps?.after_execute} />
+                            <TimelineItem label="Score" active={!!detail.timestamps?.after_score} />
                         </div>
                     </div>
 
@@ -139,29 +154,47 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
                                 <h3 className="text-sm font-bold text-slate-800">UI Changes Detected</h3>
-                                <span className="text-xs text-slate-400">Total: {getChangeStats(detail.ui_changes).total}</span>
+                                <span className="text-xs text-slate-400">Total: {stats.total}</span>
                             </div>
                             
                             <div className="flex gap-3 mb-4">
                                 <span className="px-2 py-1 bg-emerald-50 text-emerald-600 text-xs font-medium rounded-md border border-emerald-100">
-                                    + Added: {getChangeStats(detail.ui_changes).added}
+                                    + Added: {stats.added}
                                 </span>
                                 <span className="px-2 py-1 bg-blue-50 text-blue-600 text-xs font-medium rounded-md border border-blue-100">
-                                    ~ Modified: {getChangeStats(detail.ui_changes).modified}
+                                    ~ Modified: {stats.modified}
                                 </span>
                                 <span className="px-2 py-1 bg-rose-50 text-rose-600 text-xs font-medium rounded-md border border-rose-100">
-                                    - Deleted: {getChangeStats(detail.ui_changes).deleted}
+                                    - Deleted: {stats.deleted}
                                 </span>
                             </div>
 
-                            {/* List of changes (Preview) */}
-                            <div className="max-h-40 overflow-y-auto space-y-2">
-                                {detail.ui_changes?.map((change, idx) => (
-                                    <div key={idx} className="text-xs p-2 bg-slate-50 rounded border border-slate-100 flex justify-between">
-                                        <span className="font-mono text-slate-600 truncate max-w-[180px]">{change.attribute_value}</span>
-                                        <span className="text-slate-400">{change.file_path}:{change.line_num}</span>
+                            {/* List of changes */}
+                            <div className="max-h-60 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                {allChanges.length > 0 ? allChanges.map((change, idx) => (
+                                    <div key={idx} className="text-xs p-2 bg-slate-50 rounded border border-slate-100 flex flex-col gap-1">
+                                        <div className="flex justify-between items-start">
+                                            <span className={`font-mono font-semibold truncate max-w-[200px] ${
+                                                change.change_type === 'added' ? 'text-emerald-600' : 
+                                                change.change_type === 'deleted' ? 'text-rose-600 decoration-line-through' : 'text-blue-600'
+                                            }`}>
+                                                {change.attribute_value}
+                                            </span>
+                                            <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${
+                                                change.change_type === 'added' ? 'bg-emerald-100 text-emerald-600' :
+                                                change.change_type === 'deleted' ? 'bg-rose-100 text-rose-600' : 'bg-blue-100 text-blue-600'
+                                            }`}>
+                                                {change.change_type}
+                                            </span>
+                                        </div>
+                                        <div className="flex justify-between text-[10px] text-slate-400">
+                                            <span className="truncate max-w-[200px]" title={change.file_path}>{change.file_path}</span>
+                                            <span>Line: {change.line_num}</span>
+                                        </div>
                                     </div>
-                                ))}
+                                )) : (
+                                    <p className="text-xs text-slate-400 text-center py-4">No significant UI changes detected.</p>
+                                )}
                             </div>
                         </div>
 
@@ -179,18 +212,16 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                                 <span className="font-bold text-slate-800">{detail.analysis_details?.match_details?.length || 0}</span>
                             </div>
 
-                            {/* Match Details Preview (First 2) */}
+                            {/* Match Details Preview */}
                             <div className="space-y-2">
-                                {detail.analysis_details?.match_details?.slice(0, 2).map((match, idx) => (
-                                    <div key={idx} className="text-[10px] p-2 border border-slate-100 rounded bg-white">
+                                <h4 className="text-xs font-semibold text-slate-500 mt-2">Top Matches</h4>
+                                {detail.analysis_details?.match_details?.slice(0, 3).map((match, idx) => (
+                                    <div key={idx} className="text-[10px] p-2 border border-slate-100 rounded bg-white shadow-sm">
                                         <div className="flex justify-between mb-1">
-                                            <span className="text-slate-500 truncate max-w-[150px]">{match.locator.test_case}</span>
-                                            <span className="font-bold text-emerald-600">{match.score}% Match</span>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <span className="bg-rose-50 text-rose-600 px-1 rounded line-through">{match.deleted_attribute?.value}</span>
-                                            <span>→</span>
-                                            <span className="bg-emerald-50 text-emerald-600 px-1 rounded">{match.predicted_attribute?.value}</span>
+                                            <span className="text-slate-500 truncate max-w-[150px]" title={match.locator?.test_case}>
+                                                {match.locator?.test_case || "Unknown Test"}
+                                            </span>
+                                            <span className="font-bold text-emerald-600">{match.score}%</span>
                                         </div>
                                     </div>
                                 ))}
@@ -201,8 +232,6 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                     {/* 4. FINAL DECISION / RATIONALE */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                         <h3 className="text-sm font-bold text-slate-800 mb-2">Final Decision</h3>
-                        
-                        {/* Progress Bar */}
                         <div className="mb-4">
                             <div className="flex justify-between text-xs mb-1">
                                 <span className="text-slate-400">Confidence Score</span>
@@ -215,13 +244,9 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                                 />
                             </div>
                         </div>
-
                         <h4 className="text-xs font-bold text-slate-700 mb-1">Rationale</h4>
                         <p className="text-xs text-slate-500 leading-relaxed">
-                           {/* Logic render text based on status */}
-                           {detail.status === "FAIL" 
-                             ? "The test failed due to a high number of impacted locators and significant UI changes detected in critical components." 
-                             : "The test passed as UI changes were minor and did not impact critical locators."}
+                           {detail.confidence?.rationale || "No rationale provided."}
                         </p>
                     </div>
 
