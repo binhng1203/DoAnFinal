@@ -2,21 +2,13 @@
 # Chức năng: Chuyển đổi thông tin Test Steps từ DB thành Locator Inventory
 # Mục đích: Chuẩn hóa dữ liệu để Impact Analyzer có thể so khớp với UI Changes.
 
-def extract_locators_from_steps(steps_data: list):
+def extract_locators_from_steps(steps_data: list, test_case_identifier=None):
     """
-    Chuyển đổi danh sách steps lấy từ DB sang format inventory.
+    Chuyển đổi danh sách steps từ DB sang format inventory chuẩn.
     
-    Input steps_data (list dict): 
-    [
-        { "order": 1, "action": "click", "locator_type": "id", "locator_value": "btn_login", ... },
-        ...
-    ]
-    
-    Output (list dict - Inventory format):
-    [
-        { "strategy": "id", "value": "btn_login", "step_order": 1, "action": "click" },
-        ...
-    ]
+    Args:
+        steps_data: Dữ liệu các bước lấy từ database.
+        test_case_identifier: Tên test case dùng để gán nhãn cho kết quả phân tích.
     """
     inventory = []
     
@@ -24,26 +16,21 @@ def extract_locators_from_steps(steps_data: list):
         return inventory
 
     for step in steps_data:
-        # Lấy thông tin locator từ DB
         loc_type = step.get("locator_type")
         loc_value = step.get("locator_value")
         
-        # Chỉ xử lý các step có locator hợp lệ
         if loc_type and loc_value:
-            # Chuẩn hóa strategy để khớp với Impact Analyzer (thường là lowercase)
-            # Ví dụ: DB lưu "ID" hoặc "By.ID" -> chuyển thành "id" hoặc giữ nguyên tùy logic analyzer
-            # Ở đây ta giữ nguyên giá trị raw, Impact Analyzer sẽ tự xử lý (hàm _strategy_to_attr_name)
+            # Gán tên test case thực tế lấy từ Data Fetcher
+            case_name = test_case_identifier or "Unknown_TestCase"
             
             inventory.append({
                 "strategy": str(loc_type),
                 "value": str(loc_value),
-                # Các thông tin bổ sung để trace ngược lại
                 "step_order": step.get("order"),
                 "action": step.get("action"),
-                # Giả lập file/test_case để Impact Analyzer không bị lỗi key
-                "file": "DB_TESTCASE", 
-                "test_case": f"Step_{step.get('order')}"
+                "file": "DATABASE", 
+                "test_case": case_name  # Khắc phục lỗi định danh bị thiếu
             })
             
-    print(f"INFO: Extracted {len(inventory)} locators from DB steps.")
+    print(f"INFO: Extracted {len(inventory)} locators for case: {test_case_identifier}")
     return inventory

@@ -145,8 +145,17 @@ services:
     networks:
       - app-network
 
+  selenium-chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: selenium_chrome
+    shm_size: '2gb' # Tăng bộ nhớ chia sẻ để Chrome không bị crash
+    networks:
+      - app-network
+      
   proactive-service:
-    build: ./proactive_prevent_service
+    build: 
+      context: .. 
+      dockerfile: services/proactive_prevent_service/Dockerfile
     container_name: proactive_app 
     environment:
       - MONGO_URI=mongodb://mongo_db:27017/

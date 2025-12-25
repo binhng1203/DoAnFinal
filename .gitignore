@@ -1,19 +1,38 @@
-# Python cache
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-# Logs
-*.log
-services/logs/
+# --- Frontend (QUAN TRỌNG) ---
+node_modules/
+FE/project_fe/node_modules/
+.vite/
+dist/
+build/
+*.local
 
-# Data & Cache (Docker volumes)
+# --- Python & Environments ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+# Sửa lỗi chính tả từ .evn thành .env
+.env
+.env.*
+
+# --- Docker & Data Volumes ---
 services/mongo_data/
+services/postgres_data/
 services/proactive_prevent_service/repo_cache_data/
 
-# Environment settings
-.venv
-venv/
+# --- Logs ---
+*.log
+services/logs/
+logs/
 
-.evn 
-env/
+# --- IDE & OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Test Outputs ---
+test-results/
+screenshots/
