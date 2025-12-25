@@ -229,16 +229,15 @@ export default function TestCaseDetailPage() {
       console.log("Run testcase (detail) OK:", res);
 
       setSuccessMessage({
-        title: "Execution Started",
-        msg: "The Self-healing test run has been started successfully. Please wait for the report."
+        title: "Execution Success",
+        msg: "Self-healing done."
       });
       setIsSuccessOpen(true);
     } catch (err) {
       console.error("Run testcase (detail) ERROR:", err);
       console.error("Response:", err.response?.status, err.response?.data);
       setErrorMessage({
-        title: "Execution Failed",
-        msg: err.response?.data?.detail || "Could not start the test run. Please check the system."
+        title: "Execution Failed"
       });
       setIsErrorOpen(true);
     } finally {
@@ -267,16 +266,15 @@ export default function TestCaseDetailPage() {
 
       await testCaseService.runProactiveTestCase(payload);
       setSuccessMessage({
-        title: "Analysis Started",
-        msg: "Proactive analysis initiated. System is scanning for potential risks."
+        title: "Analysis Success",
+        msg: "Proactive done."
       });
       setIsSuccessOpen(true);
 
     } catch (err) {
       console.error("Run Proactive ERROR:", err);
       setErrorMessage({
-        title: "Analysis Failed",
-        msg: "Failed to trigger Proactive Analysis. Please try again later."
+        title: "Analysis Failed"
       });
       setIsErrorOpen(true);
     } finally {
@@ -524,8 +522,8 @@ export default function TestCaseDetailPage() {
           </h1>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button className="flex items-center rounded-full border border-slate-200 px-4 py-2 text-xs font-medium bg-white hover:bg-slate-50"
+        <div className="flex items-center gap-3">
+          <button className="flex items-center rounded-full border border-slate-200 px-5 py-2.5 text-sm font-medium bg-white hover:bg-slate-50 shadow-sm transition-all"
           onClick={() => setIsEditInfoOpen(true)}
           >
             Edit
@@ -533,8 +531,8 @@ export default function TestCaseDetailPage() {
           <div className="relative">
           {running ? (
             // Trạng thái Loading
-            <button disabled className="inline-flex items-center gap-2 rounded-full bg-primary/70 px-4 py-2 text-xs font-medium text-white cursor-not-allowed">
-               <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+            <button disabled className="inline-flex items-center gap-2 rounded-full bg-primary/70 px-5 py-2.5 text-sm font-medium text-white cursor-not-allowed">
+               <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
                Running...
             </button>
           ) : (
@@ -542,16 +540,16 @@ export default function TestCaseDetailPage() {
             <>
               <button
                 onClick={() => setIsRunDropdownOpen(!isRunDropdownOpen)}
-                className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm"
+                className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary/90 transition-all shadow-md shadow-indigo-100"
               >
-                <Play className="h-3 w-3 fill-current" />
+                <Play className="h-4 w-4 fill-current" />
                 Run Test Case
-                <ChevronDown className={`h-3 w-3 transition-transform ${isRunDropdownOpen ? "rotate-180" : ""}`} />
+                <ChevronDown className={`h-4 w-4 transition-transform ${isRunDropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {/* Menu Popup */}
               {isRunDropdownOpen && (
-                <div className="absolute right-0 z-20 mt-2 w-52 origin-top-right rounded-2xl border border-slate-100 bg-white p-1.5 shadow-xl ring-1 ring-black ring-opacity-5 animate-in fade-in zoom-in duration-150">
+                <div className="absolute right-0 z-20 mt-2 w-60 origin-top-right rounded-2xl border border-slate-100 bg-white p-2 shadow-xl ring-1 ring-black ring-opacity-5 animate-in fade-in zoom-in duration-150">
                   
                   {/* Option 1: Self-healing */}
                   <button
@@ -559,27 +557,23 @@ export default function TestCaseDetailPage() {
                        handleRunTestCase(); // Gọi API cũ
                        setIsRunDropdownOpen(false);
                     }}
-                    className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                   >
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                      <Wand2 className="h-4 w-4 fill-current" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+                      <Wand2 className="h-5 w-5 fill-current" />
                     </div>
-                    <div className="flex flex-col items-start">
-                      <span className="font-semibold text-slate-800">Self-healing</span>
-                    </div>
+                    <span className="font-semibold text-slate-800">Self-healing</span>
                   </button>
 
                   {/* Option 2: Proactive */}
                   <button
                     onClick={handleRunProactive}
-                    className="group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                    className="group flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
                   >
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
-                      <Sparkles className="h-4 w-4 fill-current" />
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
+                      <Sparkles className="h-5 w-5 fill-current" />
                     </div>
-                    <div className="flex flex-col items-start">
-                      <span className="font-semibold text-slate-800">Proactive</span>
-                    </div>
+                    <span className="font-semibold text-slate-800">Proactive</span>
                   </button>
                 </div>
               )}
@@ -594,67 +588,62 @@ export default function TestCaseDetailPage() {
             </>
           )}
        </div>
-          <button className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50">
-            <MoreHorizontal className="h-4 w-4" />
+          <button className="h-10 w-10 flex items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50 shadow-sm">
+            <MoreHorizontal className="h-5 w-5" />
           </button>
         </div>
       </div>
 
       {/* GRID 2 COLUMNS: General + Side info */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(260px,1.2fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(300px,1.2fr)]">
         {/* MAIN COLUMN (General info) */}
-        <div className="space-y-4">
+        <div className="space-y-6">
           {/* CARD INFO */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             {/* Name */}
-            <h1 className="text-xl font-semibold text-slate-800 mb-4">
+            <h1 className="text-2xl font-bold text-slate-800 mb-5">
               {title}
             </h1>
 
             {/* Priority + Type + Tags */}
-            <div className="flex flex-wrap items-center gap-3 mb-6">
-              <span
-                className={`px-3 py-0.5 rounded-full text-xs font-medium ${priorityColor}`}
-              >
+            <div className="flex flex-wrap items-center gap-2 mb-8">
+              <span className={`px-3 py-1 rounded-full text-sm font-medium ${priorityColor}`}>
                 Priority: {priority}
               </span>
 
-              <span className="px-3 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-xs font-medium text-slate-600">
+              <span className="px-3 py-1 rounded-full border border-slate-200 bg-slate-50 text-sm font-medium text-slate-600">
                 {type}
               </span>
 
               {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="px-3 py-0.5 rounded-full border border-slate-200 bg-slate-50 text-[11px] font-medium text-slate-600"
-                >
+                <span key={tag} className="px-3 py-1 rounded-full border border-slate-200 bg-slate-50 text-xs font-medium text-slate-600">
                   #{tag}
                 </span>
               ))}
             </div>
 
             {/* DESCRIPTION */}
-            <div className="mb-6">
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                DESCRIPTION
+            <div className="mb-8">
+              <h3 className="mb-4 text-base font-bold uppercase tracking-wide text-slate-400">
+                Description
               </h3>
-              <p className="text-sm text-slate-700 leading-relaxed">
+              <p className="text-lg text-slate-700 leading-relaxed">
                 {description}
               </p>
             </div>
 
             {/* META FIELDS */}
-            <div className="border-t border-slate-100 pt-4 space-y-2 text-xs text-slate-700">
+            <div className="border-t border-slate-100 pt-5 space-y-3 text-sm text-slate-700">
               <div className="flex justify-between">
-                <span className="text-slate-400">Assignee:</span>
-                <span className="font-medium">{author}</span>
+                <span className="text-slate-500 font-medium">Assignee:</span>
+                <span className="font-semibold text-slate-800">{author}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Created:</span>
+                <span className="text-slate-500 font-medium">Created:</span>
                 <span>{createdAt}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-slate-400">Updated:</span>
+                <span className="text-slate-500 font-medium">Updated:</span>
                 <span>{updatedAt}</span>
               </div>
             </div>
@@ -662,47 +651,45 @@ export default function TestCaseDetailPage() {
         </div>
 
         {/* SIDE COLUMN (Application + Run info) */}
-        <div className="space-y-4">
+        <div className="space-y-6">
           {/* Application Info */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400 mb-5">
               Application Info
             </h3>
-            <div className="mt-3 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">App version</span>
-                <span>{appVersion}</span>
+            <div className="space-y-4 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">App version</span>
+                <span className="font-bold text-slate-800">{appVersion}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Build version</span>
-                <span>{buildVersion}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Build version</span>
+                <span className="font-bold text-slate-800">{buildVersion}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Git hash</span>
-                <span className="font-mono text-[11px]">{gitHash}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Git hash</span>
+                <span className="font-bold text-slate-800">{gitHash}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Page</span>
-                <span className="text-[11px]">{pagePath}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Page Path</span>
+                <span className="font-bold text-slate-800">{pagePath}</span>
               </div>
             </div>
           </div>
 
           {/* Run Info */}
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400 mb-5">
               Run Information
             </h3>
-            <div className="mt-3 space-y-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Last Run Status</span>
-                <span className={`px-3 py-0.5 rounded-full ${statusCls}`}>
-                  {lastRunStatus}
-                </span>
+            <div className="space-y-4 text-sm">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Last Run Status</span>
+                <span className="font-bold text-slate-800">{lastRunStatus}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Last Run At</span>
-                <span>{lastRunAt}</span>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500 font-medium">Last Run At</span>
+                <span className="font-bold text-slate-800">{lastRunAt}</span>
               </div>
             </div>
           </div>
@@ -712,10 +699,10 @@ export default function TestCaseDetailPage() {
       {/* FULL WIDTH TEST STEPS */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-2 p-0 w-full">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
-          <h2 className="text-lg font-semibold text-slate-800">Test Steps</h2> 
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
+          <h2 className="text-xl font-bold text-slate-800">Test Steps</h2> 
           <button
-            className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm shadow-indigo-200"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-medium text-white hover:bg-primary/90 transition-all shadow-sm shadow-indigo-200"
             onClick={openCreateStepModal}
           >
             + Add Step
@@ -724,16 +711,16 @@ export default function TestCaseDetailPage() {
 
         {/* Table Test Steps */}
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> {/* ✅ Header chuẩn */}
+          <table className="w-full text-base text-left">
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> 
               <tr>
-                <th className="px-4 py-3 w-16">Step #</th>
-                <th className="px-4 py-3">Action</th>
-                <th className="px-4 py-3 w-32">Locator Type</th>
-                <th className="px-4 py-3 w-44">Locator Value</th>
-                <th className="px-4 py-3 w-32">URL</th>
-                <th className="px-4 py-3 w-60">Expected Result</th>
-                <th className="px-4 py-3 text-right w-24">Actions</th>
+                <th className="px-5 py-2.5 w-14">Step</th>
+                <th className="px-5 py-2.5 w-36">Action</th>
+                <th className="px-5 py-2.5 w-36">Locator Type</th>
+                <th className="px-5 py-2.5 w-56">Locator Value</th>
+                <th className="px-5 py-2.5 w-40">URL</th>
+                <th className="px-5 py-2.5">Expected Result</th>
+                <th className="px-5 py-2.5 text-right w-32">Actions</th>
               </tr>
             </thead>
 
@@ -750,25 +737,25 @@ export default function TestCaseDetailPage() {
               ) : (
                 steps.map((step, index) => (
                   <tr key={step.step_id || index}>
-                    <td className="px-4 py-3 text-slate-500">
+                    <td className="px-5 py-2.5 text-slate-500">
                       {step.step_order ?? index + 1}
                     </td>
-                    <td className="px-4 py-3">{step.action || "—"}</td>
-                    <td className="px-4 py-3">{step.locator_type || "—"}</td>
-                    <td className="px-4 py-3">{step.locator_value || "—"}</td>
-                    <td className="px-4 py-3">{step.url || "—"}</td>
-                    <td className="px-4 py-3">{step.expected || "—"}</td>
-                    <td className="px-4 py-3 text-right">
+                    <td className="px-5 py-2.5">{step.action || "—"}</td>
+                    <td className="px-5 py-2.5">{step.locator_type || "—"}</td>
+                    <td className="px-5 py-2.5">{step.locator_value || "—"}</td>
+                    <td className="px-5 py-2.5">{step.url || "—"}</td>
+                    <td className="px-5 py-2.5">{step.expected || "—"}</td>
+                    <td className="px-5 py-2.5 text-right">
                       <div className="flex justify-end gap-1">
-                        <button className="h-7 w-7 flex items-center justify-center rounded-full border border-slate-200 hover:bg-slate-50"
+                        <button className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 hover:bg-slate-50 transition-colors"
                         onClick={() => openEditStepModal(step)}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          <Pencil className="h-4 w-4 text-slate-600" />
                         </button>
-                        <button className="h-7 w-7 flex items-center justify-center rounded-full border border-slate-200 hover:bg-slate-50"
+                        <button className="h-8 w-8 flex items-center justify-center rounded-full border border-slate-200 hover:bg-rose-50 hover:border-rose-200 hover:text-rose-500 transition-colors"
                         onClick={() => openDeleteStepConfirm(step)}
                         >
-                          <Trash className="h-3.5 w-3.5" />
+                          <Trash className="h-4 w-4" />
                         </button>
                       </div>
                     </td>
@@ -784,42 +771,53 @@ export default function TestCaseDetailPage() {
       {/* ===================== TEST REPORTS SECTION (REAL DATA) ===================== */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">Test Reports - Self Healing</h2>
+          <h2 className="text-xl font-bold text-slate-800">Test Reports - Self Healing</h2>
           <button 
             onClick={fetchReports} 
             disabled={reportLoading}
             className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 hover:underline disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-            <RefreshCw className={`h-3 w-3 ${reportLoading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-4 w-4 ${reportLoading ? "animate-spin" : ""}`} />
             {reportLoading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
         {/* 1. SUMMARY CARDS (Dùng biến summary đã tính ở trên) */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-8">
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Total Run</span>
-            <span className="text-2xl font-bold text-slate-800">{summary.total}</span>
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-5 mb-8">
+          {/* Card Total Run */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Total Run</span>
+            <span className="text-3xl font-bold text-slate-800">{summary.total}</span>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Pass</span>
-            <span className="text-2xl font-bold text-emerald-500">{summary.pass}</span>
+          
+          {/* Card Pass */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Pass</span>
+            <span className="text-3xl font-bold text-emerald-500">{summary.pass}</span>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Fail</span>
-            <span className="text-2xl font-bold text-rose-500">{summary.fail}</span>
+          
+          {/* Card Fail */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Fail</span>
+            <span className="text-3xl font-bold text-rose-500">{summary.fail}</span>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Healed Attempt</span>
-            <span className="text-2xl font-bold text-amber-500">{summary.healed_attempt}</span>
+          
+          {/* Card Healed Attempt */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Healed Attempt</span>
+            <span className="text-3xl font-bold text-amber-500">{summary.healed_attempt}</span>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Healed Pass</span>
-            <span className="text-2xl font-bold text-blue-500">{summary.healed_pass}</span>
+          
+          {/* Card Healed Pass */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Healed Pass</span>
+            <span className="text-3xl font-bold text-blue-500">{summary.healed_pass}</span>
           </div>
-          <div className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm flex flex-col items-center justify-center gap-2">
-            <span className="text-xs font-medium text-slate-500">Healed Fail</span>
-            <span className="text-2xl font-bold text-orange-600">{summary.healed_fail}</span>
+          
+          {/* Card Healed Fail */}
+          <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm flex flex-col items-center justify-center gap-1">
+            <span className="text-sm font-medium text-slate-500">Healed Fail</span>
+            <span className="text-3xl font-bold text-orange-600">{summary.healed_fail}</span>
           </div>
         </div>
 
@@ -827,15 +825,15 @@ export default function TestCaseDetailPage() {
         <h3 className="text-sm font-bold text-slate-800 mb-4">Execution History</h3>
         
         <div className="overflow-x-auto rounded-lg border border-slate-100">
-          <table className="w-full text-sm text-left"> 
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> {/* ✅ Header chuẩn */}
+          <table className="w-full text-base text-left"> 
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> 
               <tr>
-                <th className="px-4 py-3">Run ID</th>
-                <th className="px-4 py-3 text-center">Raw Result</th>
-                <th className="px-4 py-3 text-center">Final Result</th>
-                <th className="px-4 py-3 text-center">Self-healing</th>
-                <th className="px-4 py-3">Duration</th>
-                <th className="px-4 py-3">Timestamp</th>
+                <th className="px-5 py-2.5">Run ID</th>
+                <th className="px-5 py-2.5 text-center">Raw Result</th>
+                <th className="px-5 py-2.5 text-center">Final Result</th>
+                <th className="px-5 py-2.5 text-center">Self-healing</th>
+                <th className="px-5 py-2.5">Duration</th>
+                <th className="px-5 py-2.5">Timestamp</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
@@ -863,20 +861,20 @@ export default function TestCaseDetailPage() {
                   return (
                     <tr key={item.run_id || idx} className={`${rowBg} hover:bg-slate-50 transition-colorscursor-pointer`} // Thêm cursor-pointer
                         onClick={() => handleOpenRunDetail(item)}>
-                      <td className="px-4 py-3 font-medium text-blue-600">
+                      <td className="px-5 py-2.5 font-medium text-blue-600">
                         #{item.run_id}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-5 py-2.5 text-center">
                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${rawColor}`}>
                           {rawResult}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-5 py-2.5 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${finalColor}`}>
                           {item.final_result}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-5 py-2.5 text-center">
                          {item.heal_attempted ? (
                             item.heal_success ? (
                                 <span className="text-blue-600 font-semibold flex items-center justify-center gap-1">
@@ -891,10 +889,10 @@ export default function TestCaseDetailPage() {
                             <span className="text-slate-400">—</span>
                          )}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">
+                      <td className="px-5 py-2.5 text-slate-600">
                         {formatDuration(item.total_duration_ms)}
                       </td>
-                      <td className="px-4 py-3 text-slate-500">
+                      <td className="px-5 py-2.5 text-slate-500">
                         {formatDate(item.timestamp)}
                       </td>
                     </tr>
@@ -948,7 +946,7 @@ export default function TestCaseDetailPage() {
       {/* ===================== TEST REPORTS - PROACTIVE FAULT (REAL DATA) ===================== */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm mt-4 p-6">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">
+          <h2 className="text-xl font-bold text-slate-800">
             Test Reports - Proactive Fault
           </h2>
           <button 
@@ -956,65 +954,69 @@ export default function TestCaseDetailPage() {
             disabled={proactiveLoading}
             className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 hover:underline disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-            <RefreshCw className={`h-3 w-3 ${proactiveLoading ? "animate-spin" : ""}`} />
+            <RefreshCw className={`h-4 w-4 ${proactiveLoading ? "animate-spin" : ""}`} />
             {reportLoading ? "Refreshing..." : "Refresh"}
           </button>
         </div>
 
         {/* TABLE PROACTIVE */}
         <div className="overflow-x-auto rounded-lg border border-slate-100">
-          <table className="w-full text-sm text-left"> {/* ✅ Tăng lên text-sm */}
-            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100"> {/* ✅ Header chuẩn */}
+          <table className="w-full text-base text-left">
+            <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100">
               <tr>
-                <th className="px-4 py-3">PR Info</th>
-                <th className="px-4 py-3">Commit Message</th>
-                <th className="px-4 py-3">Author</th>
-                <th className="px-4 py-3">Score</th>
-                <th className="px-4 py-3 text-center">Status</th>
-                <th className="px-4 py-3">Timestamp</th>
+                <th className="px-5 py-2.5">PR Info</th>
+                <th className="px-5 py-2.5">Commit Message</th>
+                <th className="px-5 py-2.5">Author</th>
+                <th className="px-5 py-2.5">Score</th>
+                <th className="px-5 py-2.5 text-center">Status</th>
+                <th className="px-5 py-2.5">Timestamp</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {proactiveLoading ? (
-                 <tr><td colSpan={6} className="text-center py-4 text-slate-500">Đang tải dữ liệu...</td></tr>
+                 <tr><td colSpan={6} className="text-center py-6 text-slate-500">Đang tải dữ liệu...</td></tr>
               ) : proactiveReports.length === 0 ? (
-                 <tr><td colSpan={6} className="text-center py-4 text-slate-500 italic">Chưa có báo cáo nào.</td></tr>
+                 <tr><td colSpan={6} className="text-center py-6 text-slate-500 italic">Chưa có báo cáo nào.</td></tr>
               ) : (
                 proactiveReports.map((item, idx) => (
                   <tr key={item.id || idx} className="hover:bg-slate-50 transition-colors cursor-pointer"
                   onClick={() => handleOpenProactiveDetail(item)}>
-                    {/* Cột 1: PR Number (Kết hợp Icon Github nếu muốn) */}
-                    <td className="px-4 py-3">
+                    
+                    {/* Cột 1: PR Number (Fix null hiển thị —) */}
+                    <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2">
-                         <span className="font-mono font-bold text-blue-600">#{item.pr_number}</span>
+                         <span className="font-mono font-bold text-blue-600">
+                            {item.pr_number ? `#${item.pr_number}` : "—"}
+                         </span>
                       </div>
                     </td>
 
-                    {/* Cột 2: Commit Message (Cắt ngắn nếu dài) */}
-                    <td className="px-4 py-3 max-w-[200px] truncate" title={item.commit_msg}>
-                      <span className="text-slate-700">{item.commit_msg || "—"}</span>
+                    {/* Cột 2: Commit Message */}
+                    <td className="px-5 py-2.5 max-w-[240px] truncate" title={item.commit_msg}>
+                      <span className="text-slate-700 font-medium">
+                        {item.commit_msg || "—"}
+                      </span>
                     </td>
 
                     {/* Cột 3: Author */}
-                    <td className="px-4 py-3">
-                       <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-600 font-medium">
+                    <td className="px-5 py-2.5">
+                       <span className="px-2.5 py-1 bg-slate-100 rounded text-slate-600 font-medium text-sm">
                          {item.author || "Unknown"}
                        </span>
                     </td>
 
-                    {/* Cột 4: Score (Dùng lại helper renderScoreBar cũ) */}
-                    <td className="px-4 py-3">
-                      {/* JSON trả về confidence_score, ta truyền vào hàm render cũ */}
+                    {/* Cột 4: Score */}
+                    <td className="px-5 py-2.5">
                       {renderScoreBar(item.confidence_score)}
                     </td>
 
-                    {/* Cột 5: Status (Dùng lại helper renderProactiveStatus cũ) */}
-                    <td className="px-4 py-3 text-center">
+                    {/* Cột 5: Status */}
+                    <td className="px-5 py-2.5 text-center">
                       {renderProactiveStatus(item.status)}
                     </td>
 
-                    {/* Cột 6: Timestamp */}
-                    <td className="px-4 py-3 text-slate-500">
+                    {/* Cột 6: Timestamp (JSON mới dùng started_at) */}
+                    <td className="px-5 py-2.5 text-slate-500">
                       {formatDate(item.started_at)}
                     </td>
                   </tr>

@@ -63,8 +63,8 @@ export default function KnowledgeBaseDetailPage() {
   const avgRepairTime =
     item?.avg_repair_ms != null ? item.avg_repair_ms : null;
 
-  const updatedAt = item?.updated_at
-    ? formatDateTime(item.updated_at)
+  const lastUpdated = item?.last_updated
+    ? formatDateTime(item.last_updated)
     : "—";
 
   const commitInfo = item?.commit_info || null;
@@ -271,7 +271,7 @@ export default function KnowledgeBaseDetailPage() {
                   </p>
                   <p>
                     <span className="font-medium">Last Updated:</span>{" "}
-                    {updatedAt}
+                    {lastUpdated}
                   </p>
                 </div>
 

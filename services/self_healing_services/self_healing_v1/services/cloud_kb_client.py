@@ -92,17 +92,17 @@ class CloudKnowledgeBaseClient:
             logger.warning(f"[KB Client] Schema check failed: {e}")
 
     def update_knowledge(self, old_locator, new_locator, fingerprint, commit_info=None, page_url=None, engine="PYTHON", score=None, duration_ms=0):
-        # KHÔNG return âm thầm, phải báo lý do
+        # 1. KIỂM TRA TRẠNG THÁI (Đừng để nó return âm thầm nữa)
         if not self.enabled:
-            logger.warning("[KB Client] ⚠️ Không lưu được vì Client đang DISABLED.")
+            logger.warning(f"[KB Client] ⚠️ Bỏ qua lưu vì Client đang DISABLED. Hãy kiểm tra Startup Log!")
             return
         if not self.conn or self.conn.closed:
-            logger.error("[KB Client] ❌ Không lưu được vì mất kết nối DB.")
+            logger.error(f"[KB Client] ❌ Mất kết nối DB. Đang thử kết nối lại...")
             return
             
         fp_hash = _fingerprint_hash(fingerprint)
-        logger.info(f"[KB Client] 🛠️ Đang chuẩn bị SQL INSERT cho hash: {fp_hash[:10]}...")
-
+        logger.info(f"[KB Client] 🛠️ Chuẩn bị INSERT: hash={fp_hash[:10]}... | engine={engine}")
+        
         try:
             with self.conn.cursor() as cur:
                 insert_sql = f"""
@@ -121,18 +121,21 @@ class CloudKnowledgeBaseClient:
                         last_score = EXCLUDED.last_score,
                         updated_at = NOW();
                 """
+                
                 params = (
-                    fp_hash, psycopg2.extras.Json(fingerprint), 
+                    fp_hash, 
+                    psycopg2.extras.Json(fingerprint), 
                     old_locator[0], old_locator[1], 
                     new_locator[0], new_locator[1],
                     engine, score, duration_ms
                 )
+                
                 cur.execute(insert_sql, params)
-                # Đảm bảo dữ liệu được ghi xuống đĩa ngay lập tức
-                self.conn.commit() 
-                logger.info(f"[KB Client] ✅ THÀNH CÔNG: Tri thức đã được lưu vào Postgres.")
+                # Tự động commit vì bạn đã set autocommit=True ở __init__
+                logger.info(f"[KB Client] ✅ SQL Executed! Tri thức đã được đẩy xuống Postgres.")
+                
         except Exception as e:
-            logger.error(f"[KB Client] ❌ LỖI SQL: {e}")
+            logger.error(f"[KB Client] ❌ SQL Save Error: {e}")
             
     def find_suggestion(self, fingerprint, locator_value):
         """Tìm kiếm giải pháp gợi ý từ Knowledge Base."""

@@ -316,7 +316,7 @@ export default function TestCaseListPage() {
           {/* BODY */}
           <div className="px-6 pb-4">
             {loading && (
-              <p className="py-4 text-sm text-slate-500">
+              <p className="py-4 text-base text-slate-500">
                 Đang tải danh sách test case...
               </p>
             )}
@@ -326,16 +326,16 @@ export default function TestCaseListPage() {
 
             {!loading && !error && (
               <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                <table className="min-w-full text-base">
+                  <thead className="bg-slate-50 text-base font-semibold text-slate-500">
                     <tr>
-                      <th className="px-4 py-3 text-left w-12">STT</th>
-                      <th className="px-4 py-3 text-left">Title</th>
-                      <th className="px-4 py-3 text-left w-28">Priority</th>
-                      <th className="px-4 py-3 text-left w-28">Type</th>
-                      <th className="px-4 py-3 text-left w-40">Author</th>
-                      <th className="px-4 py-3 text-left w-32">Last Run</th>
-                      <th className="px-4 py-3 text-left w-40">Action</th>
+                      <th className="px-5 py-2.5 text-left w-12">STT</th>
+                      <th className="px-5 py-2.5 text-left">Title</th>
+                      <th className="px-5 py-2.5 text-left w-28">Priority</th>
+                      <th className="px-5 py-2.5 text-left w-28">Type</th>
+                      <th className="px-5 py-2.5 text-left w-40">Author</th>
+                      <th className="px-5 py-2.5 text-left w-32">Last Run</th>
+                      <th className="px-5 py-2.5 text-left w-40">Action</th>
                     </tr>
                   </thead>
 
@@ -372,8 +372,8 @@ export default function TestCaseListPage() {
 
                         return (
                           <tr key={testCaseId}>
-                            <td className="px-4 py-3 text-xs">{stt}</td>
-                            <td className="px-4 py-3">
+                            <td className="px-5 py-2.5 text-base">{stt}</td>
+                            <td className="px-5 py-2.5">
                               <span
                                 onClick={() =>
                                   navigate(
@@ -391,16 +391,16 @@ export default function TestCaseListPage() {
                             </td>
 
                             {/* Priority */}
-                            <td className="px-4 py-3">
+                            <td className="px-5 py-2.5">
                               <span
-                                className={`px-3 py-1 rounded-full text-xs font-medium ${priorityColor}`}
+                                className={`px-3 py-1 rounded-full text-base font-medium ${priorityColor}`}
                               >
                                 {tc.priority || "—"}
                               </span>
                             </td>
 
                             {/* Type */}
-                            <td className="px-4 py-3">
+                            <td className="px-5 py-2.5">
                               {Array.isArray(tc.steps) &&
                               tc.steps.length > 0
                                 ? "Automated"
@@ -408,21 +408,21 @@ export default function TestCaseListPage() {
                             </td>
 
                             {/* Author */}
-                            <td className="px-4 py-3">
+                            <td className="px-5 py-2.5">
                               <div className="flex items-center gap-2">
                                 {/* Avatar Icon User */}
                                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
                                   <User className="h-4 w-4" strokeWidth={2} />
                                 </div>
 
-                                <span className="text-slate-700 text-xs font-medium">
+                                <span className="text-slate-700 text-base font-medium">
                                   {tc.creator_username || "—"}
                                 </span>
                               </div>
                             </td>
 
                             {/* Status */}
-                            <td className="px-4 py-3 text-xs">
+                            <td className="px-5 py-2.5 text-base">
                               {tc.last_run_status ? (
                                 <div className="flex flex-col gap-1">
                                   <span
@@ -442,7 +442,7 @@ export default function TestCaseListPage() {
                             </td>
 
                             {/* Actions */}
-                            <td className="px-4 py-3">
+                            <td className="px-5 py-2.5">
                               <div className="flex items-center gap-2 justify-end">
                                 {/* Edit */}
                                 <button

@@ -501,7 +501,6 @@ class HealingManager:
 
         # TRẢ VỀ ELEMENT ĐỂ SELENIUM THỰC THI TIẾP
         return candidate_element
-        
     def _report_event_to_db(self, context, old_val, success, reason=""):
         """Helper để gọi persistence_service lưu sự kiện."""
         self.persistence_service._insert_heal_event(
