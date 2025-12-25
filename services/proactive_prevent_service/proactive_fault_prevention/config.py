@@ -15,8 +15,8 @@ MONGO_DB_NAME = os.getenv("MONGO_DB_NAME", "proactive_healing_db")
 PG_DB_HOST = os.getenv("DB_HOST", "system_db") 
 PG_DB_PORT = os.getenv("DB_PORT", "5432")
 PG_DB_NAME = os.getenv("DB_NAME", "final")
-PG_DB_USER = os.getenv("DB_USER", "app_user")         
-PG_DB_PASSWORD = os.getenv("DB_PASSWORD", "app_password") 
+PG_DB_USER = os.getenv("DB_USER", "postgres")         
+PG_DB_PASSWORD = os.getenv("DB_PASSWORD", "postgres") 
 
 # Config dict để tiện ném vào psycopg2
 PG_DB_CONFIG = {
@@ -30,29 +30,26 @@ PG_DB_CONFIG = {
 # =========================================
 # 3. CẤU HÌNH CHO MODULE PHÂN TÍCH (ANALYZERS)
 # =========================================
-# [QUAN TRỌNG] Đường dẫn cache phải là Linux path trong container (/app/...)
 REPO_CACHE_DIRECTORY = os.getenv("REPO_CACHE_DIR", "/app/repo_cache")
 
-# --- CẬP NHẬT MỚI TỪ BẠN ---
-# Pattern tìm attribute có thể là locator
+# Mở rộng Pattern để bắt thêm các loại locator hiện đại (data-qa, placeholder, v.v.)
+ATTRIBUTE_PATTERN = r'(id|className|data-testid|data-qa|test-id|aria-label|role|name|title|placeholder)="([^"]+)"'
 
-ATTRIBUTE_PATTERN = r'(id|className|data-testid|aria-label|role|name|title)="([^"]+)"'
-
-# Danh sách các đuôi file được coi là file UI cần được phân tích
 UI_FILE_EXTENSIONS = (
     ".html", ".htm", ".xml", ".jsx", ".tsx",
     ".vue", ".svelte", ".hbs", ".handlebars"
 )
 
-# Ngưỡng điểm so khớp mờ
-FUZZY_MATCH_THRESHOLD = 85
+# --- ĐIỀU CHỈNH QUAN TRỌNG ---
+# Hạ xuống 75 để bắt được các thay đổi nhãn (label) như Cart -> Bag
+FUZZY_MATCH_THRESHOLD = 75 
 
-# Cấu hình trọng số cho thuật toán so khớp
+# Tăng trọng số cho token_set_ratio để nhận diện tốt hơn khi các từ bị đảo thứ tự hoặc thay đổi 1 phần
 FUZZY_SCORER_WEIGHTS = {
     'single_string': {
-        'ratio': 0.6,
-        'partial_ratio': 0.3,
-        'token_set_ratio': 0.1
+        'ratio': 0.4,           # Giảm độ khắt khe của việc khớp tuyệt đối
+        'partial_ratio': 0.3, 
+        'token_set_ratio': 0.3  # Tăng cái này để bắt được sự tương đồng về từ vựng (Add, to, ...)
     },
     'token_set': {
         'ratio': 0.1,
