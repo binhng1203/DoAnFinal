@@ -70,7 +70,7 @@ def get_locators_list():
     total = db.session.execute(count_stmt).scalar()
 
     # Thêm sort và limit vào câu query chính
-    stmt = stmt.order_by(desc(t.c.last_updated))
+    stmt = stmt.order_by(desc(t.c.updated_at))
     stmt = stmt.limit(limit).offset(offset)
 
     # 4. Thực thi

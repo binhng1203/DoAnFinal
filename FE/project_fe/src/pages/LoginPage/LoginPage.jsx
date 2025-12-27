@@ -65,7 +65,7 @@ export default function LoginPage() {
       }
 
       // Điều hướng sang Dashboard sau khi login
-      navigate(ROUTES.DASHBOARD);
+      navigate(ROUTES.PROJECTS);
     } catch (err) {
       console.error(err);
 

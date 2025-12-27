@@ -16,19 +16,19 @@ export default function ProjectCard({
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900 truncate">
+          <h3 className="text-base font-semibold text-slate-900 truncate">
             {name}
           </h3>
 
           {description && (
-            <p className="mt-1 text-xs text-slate-500 line-clamp-2">
+            <p className="mt-1 text-sm text-slate-500 line-clamp-2">
               {description}
             </p>
           )}
         </div>
 
         {/* Status Badge */}
-        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600">
+        <span className="inline-flex items-center gap-1 text-sm font-medium text-emerald-600">
           <span className="h-2 w-2 rounded-full bg-emerald-500" />
           {status}
         </span>
@@ -44,10 +44,10 @@ export default function ProjectCard({
               <User className="h-4 w-4" strokeWidth={2} />
             </div>
             
-            <span className="text-xs text-slate-700 font-medium">{role}</span>
+            <span className="text-sm text-slate-700 font-medium">{role}</span>
           </div>
 
-          <p className="text-[11px] text-slate-500">Created {createdAt}</p>
+          <p className="text-[13px] text-slate-500">Created {createdAt}</p>
         </div>
 
         {/* Action icons */}

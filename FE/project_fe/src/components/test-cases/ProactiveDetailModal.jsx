@@ -60,7 +60,7 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
     ];
   }, [detail]);
 
-  // ✅ Sau khi khai báo hết Hooks mới được return
+  // Sau khi khai báo hết Hooks mới được return
   if (!isOpen) return null;
 
   const renderStatusBadge = (status) => {
@@ -86,7 +86,7 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
         {/* HEADER */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-4">
-            <h2 className="text-xl font-bold text-[#6425FE]">Test Run Detail</h2>
+            <h2 className="text-xl font-bold text-[#6425FE]">Proactive Detail</h2>
             {!loading && detail && (
                 <>
                     {renderStatusBadge(detail.status)}
@@ -110,7 +110,7 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                 <div className="space-y-6">
                     
                     {/* 1. INFO HEADER GRID */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs text-slate-500">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-slate-500">
                         <div>
                             <span className="block text-slate-400 mb-1">Repo</span>
                             <span className="font-medium text-slate-700">{detail.pr_info?.repo_full_name || "—"}</span>
@@ -124,8 +124,8 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                             </div>
                         </div>
                          <div>
-                            <span className="block text-slate-400 mb-1">PR Author</span>
-                            <span className="font-medium text-slate-700">{detail.pr_info?.author || "—"}</span>
+                            <span className="block text-slate-400 mb-1">Author</span>
+                            <span className="font-medium text-slate-700">{detail.pr_info?.author_name || "—"}</span>
                         </div>
                         <div>
                             <span className="block text-slate-400 mb-1">Started At</span>
@@ -133,9 +133,24 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
+                        <div className="md:col-span-3">
+                            <span className="block text-slate-400 mb-1">Commit Message</span>
+                            <span className="font-medium text-rose-600 block truncate" title={detail.pr_info?.commit_message}>
+                                {detail.pr_info?.commit_message || "—"}
+                            </span>
+                        </div>
+                        <div>
+                            <span className="block text-slate-400 mb-1">Duration</span>
+                            <span className="font-medium text-slate-700">
+                                {detail.confidence?.repair_duration_ms ? `${detail.confidence.repair_duration_ms} ms` : "—"}
+                            </span>
+                        </div>
+                    </div>
+
                     {/* 2. PIPELINE TIMELINE */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <h3 className="text-sm font-bold text-slate-800 mb-4">Pipeline Timeline</h3>
+                        <h3 className="text-base font-bold text-slate-800 mb-4">Pipeline Timeline</h3>
                         <div className="relative flex justify-between items-center px-4">
                             <div className="absolute top-[15px] left-8 right-8 h-0.5 bg-slate-100 z-0" />
                             <TimelineItem label="Start" active={!!detail.timestamps?.start} />
@@ -153,8 +168,8 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                         {/* LEFT: UI Changes Detected */}
                         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <h3 className="text-sm font-bold text-slate-800">UI Changes Detected</h3>
-                                <span className="text-xs text-slate-400">Total: {stats.total}</span>
+                                <h3 className="text-base font-bold text-slate-800">UI Changes Detected</h3>
+                                <span className="text-sm text-slate-500">Total: {stats.total}</span>
                             </div>
                             
                             <div className="flex gap-3 mb-4">
@@ -198,42 +213,94 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                             </div>
                         </div>
 
-                        {/* RIGHT: Impact Analysis */}
-                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-                            <h3 className="text-sm font-bold text-slate-800">Impact Analysis</h3>
-                            
-                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                <span className="text-xs text-slate-600">Predicted Failed Tests</span>
-                                <span className="font-bold text-rose-500">{detail.analysis_details?.predicted_failed_tests?.length || 0}</span>
+                        {/* RIGHT: Impact Analysis (CẬP NHẬT THEO JSON MỚI) */}
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
+                            <div className="flex items-center justify-between mb-4">
+                                <h3 className="text-base font-bold text-slate-800">Impact Analysis</h3>
+                                <span className="text-base font-bold text-rose-500">
+                                    {/* Sử dụng impacted_locators từ JSON */}
+                                    {detail.analysis_details?.impacted_locators?.length || 0}
+                                </span>
                             </div>
 
-                            <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
-                                <span className="text-xs text-slate-600">Matched Locators</span>
-                                <span className="font-bold text-slate-800">{detail.analysis_details?.match_details?.length || 0}</span>
-                            </div>
+                            <div className="flex-1 max-h-80 overflow-y-auto rounded-lg border border-slate-100 custom-scrollbar">
+                                <table className="min-w-full text-sm text-left">
+                                    <thead className="bg-slate-50 text-slate-500 font-semibold sticky top-0 z-10">
+                                        <tr>
+                                            <th className="px-3 py-2 border-b border-slate-100">Locator</th>
+                                            <th className="px-3 py-2 border-b border-slate-100 text-right">Score</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50">
+                                        {(detail.analysis_details?.impacted_locators || []).length === 0 ? (
+                                            <tr>
+                                                <td colSpan="2" className="px-3 py-8 text-center text-slate-400 italic">
+                                                    No impact predicted.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            detail.analysis_details.impacted_locators.map((impact, idx) => (
+                                                <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                                                    {/* Cột 1: Chỉ hiện Locator cũ (value_before) */}
+                                                    <td className="px-3 py-3 align-middle">
+                                                        <div className="inline-block p-2 rounded-lg bg-[#6425FE]/5 border border-[#6425FE]/10">
+                                                        <code className="font-mono text-[11px] text-[#6425FE] font-medium break-all leading-relaxed">
+                                                            {impact.value_before || "—"}
+                                                        </code>
+                                                    </div>
+                                                    </td>
 
-                            {/* Match Details Preview */}
-                            <div className="space-y-2">
-                                <h4 className="text-xs font-semibold text-slate-500 mt-2">Top Matches</h4>
-                                {detail.analysis_details?.match_details?.slice(0, 3).map((match, idx) => (
-                                    <div key={idx} className="text-[10px] p-2 border border-slate-100 rounded bg-white shadow-sm">
-                                        <div className="flex justify-between mb-1">
-                                            <span className="text-slate-500 truncate max-w-[150px]" title={match.locator?.test_case}>
-                                                {match.locator?.test_case || "Unknown Test"}
-                                            </span>
-                                            <span className="font-bold text-emerald-600">{match.score}%</span>
-                                        </div>
-                                    </div>
-                                ))}
+                                                    {/* Cột 2: Score */}
+                                                    <td className="px-3 py-3 align-middle text-right whitespace-nowrap">
+                                                        <span className={`font-bold text-xs ${
+                                                            (impact.score || 0) >= 80 ? 'text-emerald-600' : 
+                                                            (impact.score || 0) >= 50 ? 'text-amber-600' : 'text-slate-600'
+                                                        }`}>
+                                                            {impact.score}%
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
 
-                    {/* 4. FINAL DECISION / RATIONALE */}
+                    {/* === 5. TEST RESULT  === */}
+                    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <h3 className="text-base font-bold text-slate-800 mb-2">Test Result</h3>
+                        
+                        <div className="flex items-center gap-12 text-sm font-bold">
+                            {/* Pass */}
+                            <div className="flex items-center gap-2 text-emerald-600">
+                                <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+                                {/* Lấy từ detail.test_result.passed */}
+                                <span>Pass: {detail.test_result?.passed || 0}</span>
+                            </div>
+
+                            {/* Fail */}
+                            <div className="flex items-center gap-2 text-rose-600">
+                                <div className="h-2 w-2 rounded-full bg-rose-500"></div>
+                                {/* Lấy từ detail.test_result.failed */}
+                                <span>Fail: {detail.test_result?.failed || 0}</span>
+                            </div>
+
+                            {/* Total */}
+                            <div className="flex items-center gap-2 text-slate-600">
+                                <div className="h-2 w-2 rounded-full bg-slate-400"></div>
+                                {/* Lấy từ detail.test_result.total */}
+                                <span>Total: {detail.test_result?.total || 0}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 6. FINAL DECISION / RATIONALE */}
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-                        <h3 className="text-sm font-bold text-slate-800 mb-2">Final Decision</h3>
+                        <h3 className="text-base font-bold text-slate-800 mb-2">Final Decision</h3>
                         <div className="mb-4">
-                            <div className="flex justify-between text-xs mb-1">
+                            <div className="flex justify-between text-sm mb-1">
                                 <span className="text-slate-400">Confidence Score</span>
                                 <span className="font-bold text-slate-700">{detail.confidence?.score}/100</span>
                             </div>
@@ -244,8 +311,8 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                                 />
                             </div>
                         </div>
-                        <h4 className="text-xs font-bold text-slate-700 mb-1">Rationale</h4>
-                        <p className="text-xs text-slate-500 leading-relaxed">
+                        <h4 className="text-base font-bold text-slate-700 mb-1">Rationale</h4>
+                        <p className="text-sm text-slate-500 leading-relaxed">
                            {detail.confidence?.rationale || "No rationale provided."}
                         </p>
                     </div>
@@ -253,17 +320,6 @@ export default function ProactiveDetailModal({ isOpen, onClose, analysisId, test
                 </div>
             )}
         </div>
-
-        {/* FOOTER */}
-        <div className="p-4 border-t border-slate-100 flex justify-end gap-3 bg-white">
-             <button className="px-4 py-2 rounded-lg bg-[#6425FE] text-white text-xs font-semibold hover:bg-[#521bd1]">
-                View Raw JSON
-             </button>
-             <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
-                Close
-             </button>
-        </div>
-
       </div>
     </div>
   );

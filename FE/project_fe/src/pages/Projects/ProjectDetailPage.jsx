@@ -315,23 +315,23 @@ export default function ProjectDetailPage() {
   const updatedAt = project?.updated_at ? formatDate(project.updated_at) : "--";
 
   const renderStatusBadge = () => {
-    let cls = "bg-slate-100 text-slate-600";
+    let cls = "bg-slate-100 text-slate-600 border-slate-200";
     let text = "Unknown";
 
     if (status === "active") {
-      cls = "bg-emerald-50 text-emerald-600";
+      cls = "bg-emerald-50 text-emerald-700 border-emerald-100";
       text = "Active";
     } else if (status === "pending") {
-      cls = "bg-amber-50 text-amber-600";
+      cls = "bg-amber-50 text-amber-700 border-amber-100";
       text = "Pending";
     } else if (status === "completed") {
-      cls = "bg-slate-100 text-slate-600";
+      cls = "bg-blue-50 text-blue-700 border-blue-100";
       text = "Completed";
     }
 
     return (
       <span
-        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${cls}`}
+        className={`inline-flex items-center rounded-full px-4 py-1.5 text-sm font-medium ${cls}`}
       >
         {text}
       </span>
@@ -383,12 +383,12 @@ export default function ProjectDetailPage() {
       return (
         <React.Fragment key={suiteId}>
           <tr>
-            <td className="px-4 py-3 text-slate-500">
+            <td className="px-6 py-4 text-slate-500">
               {hasChildren ? (
                 <button
                   type="button"
                   onClick={() => handleToggleSuite(suiteId)}
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-full hover:bg-slate-100"
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full hover:bg-slate-100"
                 >
                   <ChevronRight
                     className={`h-4 w-4 transition-transform ${isExpanded ? "rotate-90" : ""
@@ -401,7 +401,7 @@ export default function ProjectDetailPage() {
             </td>
 
             {/* ID: thụt lề + nhánh cho child */}
-            <td className="px-4 py-3 text-slate-800">
+            <td className="px-6 py-4 text-slate-800">
               <div style={{ paddingLeft: level * 24 }}>
                 {level > 0 && <span className="mr-2 text-slate-400"></span>}
                 {suiteId}
@@ -409,22 +409,22 @@ export default function ProjectDetailPage() {
             </td>
 
             {/* Name: thụt lề giống ID + click để mở màn TestCase */}
-            <td className="px-4 py-3 text-slate-800">
+            <td className="px-6 py-4 text-slate-800">
               <div
                 style={{ paddingLeft: level * 24 }}
-                className="cursor-pointer hover:text-primary"
+                className="cursor-pointer font-medium hover:text-primary transition-colors text-base"
                 onClick={handleOpenTestCases}
               >
                 {suiteName}
               </div>
             </td>
 
-            <td className="px-4 py-3">
+            <td className="px-6 py-4">
               <div className="flex items-center gap-2 text-slate-500">
                 {/* Add Test Suite Child */}
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50"
                   onClick={() => openCreateSuiteModal(suiteId)}
                 >
                   <Plus className="h-4 w-4" stroke="#84828A" strokeWidth={2} />
@@ -433,7 +433,7 @@ export default function ProjectDetailPage() {
                 {/* Edit */}
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50"
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white hover:bg-slate-50"
                   onClick={() => openEditSuiteModal(suite)}
                 >
                   <Pencil
@@ -504,7 +504,7 @@ export default function ProjectDetailPage() {
           <button
             type="button"
             onClick={() => setIsEditOpen(true)}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-base font-medium text-slate-700 hover:bg-slate-50"
           >
             Edit Project
           </button>
@@ -520,10 +520,10 @@ export default function ProjectDetailPage() {
         {/* CARD CHÍNH */}
         <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           {/* Tabs */}
-          <div className="px-6 pt-4 border-b border-slate-100">
-            <div className="flex gap-6 text-sm">
+          <div className="px-6 pt-5 border-b border-slate-100">
+            <div className="flex gap-8 text-base">
               <button
-                className={`pb-3 border-b-2 ${activeTab === "general"
+                className={`pb-4 border-b-2 ${activeTab === "general"
                   ? "border-primary text-primary font-semibold"
                   : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
@@ -533,7 +533,7 @@ export default function ProjectDetailPage() {
               </button>
 
               <button
-                className={`pb-3 border-b-2 ${activeTab === "testsuite"
+                className={`pb-4 border-b-2 ${activeTab === "testsuite"
                   ? "border-primary text-primary font-semibold"
                   : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
@@ -543,7 +543,7 @@ export default function ProjectDetailPage() {
               </button>
 
               <button
-                className={`pb-3 border-b-2 ${activeTab === "member"
+                className={`pb-4 border-b-2 ${activeTab === "member"
                   ? "border-primary text-primary font-semibold"
                   : "border-transparent text-slate-500 hover:text-slate-700"
                   }`}
@@ -558,41 +558,41 @@ export default function ProjectDetailPage() {
           <div className="px-6 py-6">
             {/* ========== TAB GENERAL ========== */}
             {activeTab === "general" && (
-              <div className="grid gap-8 md:grid-cols-[2fr,1fr]">
+              <div className="grid gap-10 md:grid-cols-[2fr,1fr]">
                 {/* LEFT */}
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {/* Project Name */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label className="mb-2 block text-base font-medium text-slate-600">
                       Project Name
                     </label>
                     <input
                       readOnly
                       value={name || ""}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-800 outline-none"
                     />
                   </div>
 
                   {/* Project Code */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label className="mb-2 block text-base font-medium text-slate-600">
                       Project Code
                     </label>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                       <input
                         readOnly
                         value={projectCode}
-                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none"
+                        className="flex-1 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-800 outline-none"
                       />
 
                       <button
                         type="button"
                         onClick={handleCopyCode}
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50"
+                        className="inline-flex h-12 w-12 items-center justify-center rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-primary/50 transition-all shadow-sm"
                       >
                         <Clipboard
-                          className="h-4 w-4"
+                          className="h-5 w-5"
                           stroke="#84828A"
                           strokeWidth={2}
                         />
@@ -600,26 +600,26 @@ export default function ProjectDetailPage() {
                     </div>
 
                     {copied && (
-                      <p className="mt-1 text-xs text-emerald-500">Copied!</p>
+                      <p className="mt-1.5 text-sm text-emerald-500">Copied!</p>
                     )}
                   </div>
 
                   {/* Description */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label className="mb-2 block text-base font-medium text-slate-600">
                       Description
                     </label>
                     <textarea
                       readOnly
                       rows={3}
                       value={description}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none"
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none"
                     />
                   </div>
 
                   {/* Repository URL */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-slate-600">
+                    <label className="mb-2 block text-base font-medium text-slate-600">
                       Repository URL
                     </label>
 
@@ -628,9 +628,9 @@ export default function ProjectDetailPage() {
                         href={repoUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                        className="inline-flex items-center gap-2.5 text-base text-primary hover:underline"
                       >
-                        <span className="text-lg"></span>
+                        <span className="text-xl"></span>
                         <span className="truncate max-w-xs">{repoUrl}</span>
                       </a>
                     ) : (
@@ -640,37 +640,37 @@ export default function ProjectDetailPage() {
                 </div>
 
                 {/* RIGHT */}
-                <div className="space-y-4 text-sm">
+                <div className="space-y-6 text-base">
                   {/* Owner */}
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-medium text-slate-600">
+                      <div className="text-base font-medium text-slate-600">
                         Project Owner
                       </div>
 
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                      <div className="mt-2 flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
                           <User className="h-5 w-5" strokeWidth={2} />
                         </div>
-                        <span className="text-slate-800">{ownerName}</span>
+                        <span className="text-base font-semibold text-slate-800">{ownerName}</span>
                       </div>
                     </div>
 
-                    <button className="text-xs font-medium text-primary hover:underline">
+                    <button className="text-sm font-medium text-primary hover:underline">
                       Change owner
                     </button>
                   </div>
 
                   {/* Status */}
                   <div>
-                    <div className="text-xs font-medium text-slate-600">
+                    <div className="text-base font-medium text-slate-600">
                       Status
                     </div>
                     <div className="mt-2">{renderStatusBadge()}</div>
                   </div>
 
                   {/* Dates */}
-                  <div className="space-y-2 text-xs text-slate-600">
+                  <div className="space-y-2 text-sm text-slate-600">
                     <div>
                       <span className="font-medium">Created At:</span>{" "}
                       <span>{createdAt}</span>
@@ -686,18 +686,18 @@ export default function ProjectDetailPage() {
 
             {/* ========== TAB TEST SUITE ========== */}
             {activeTab === "testsuite" && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {/* Top bar: search + buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="relative w-64">
+                  <div className="relative w-72">
                     <Search
-                      className="pointer-events-none absolute left-3 top-2.5 h-4 w-4"
+                      className="pointer-events-none absolute left-3.5 top-3 h-5 w-5 text-slate-400"
                       stroke="#84828A"
                       strokeWidth={2}
                     />
 
                     <input
-                      className="w-full rounded-full border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="w-full rounded-full border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                       placeholder="Search suites..."
                       value={suiteSearch}
                       onChange={(e) => {
@@ -707,18 +707,18 @@ export default function ProjectDetailPage() {
                     />
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                  <div className="flex items-center gap-3">
+                    <button className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50">
                       <Filter
-                        className="h-4 w-4"
+                        className="h-5 w-5"
                         stroke="#84828A"
-                        strokeWidth={2}
+                        strokeWidth={2.5}
                       />
                       Filter
                     </button>
 
                     <button
-                      className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90"
+                      className="inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-medium text-white hover:bg-primary/90"
                       onClick={() => openCreateSuiteModal(null)} // root, không có parent
                     >
                       + Create New Test Suite
@@ -729,29 +729,29 @@ export default function ProjectDetailPage() {
                 {/* Test Suite Table */}
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                   {loadingSuites && (
-                    <p className="px-6 py-4 text-sm text-slate-500">
+                    <p className="px-6 py-8 text-base text-slate-500">
                       Đang tải danh sách test suite...
                     </p>
                   )}
                   {errorSuites && (
-                    <p className="px-6 py-4 text-sm text-red-500">
+                    <p className="px-6 py-8 text-base text-red-500">
                       {errorSuites}
                     </p>
                   )}
 
                   {!loadingSuites && (
                     <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
-                        <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                      <table className="min-w-full text-base">
+                        <thead className="bg-slate-50 text-base font-semibold text-slate-500">
                           <tr>
-                            <th className="px-4 py-3 text-left w-10"></th>
-                            <th className="px-4 py-3 text-left w-32">
+                            <th className="px-6 py-4 text-left w-10"></th>
+                            <th className="px-6 py-4 text-left w-40">
                               Test Suite ID
                             </th>
-                            <th className="px-4 py-3 text-left">
+                            <th className="px-6 py-4 text-left">
                               Test Suite Name
                             </th>
-                            <th className="px-4 py-3 text-left w-32">
+                            <th className="px-6 py-4 text-left w-32">
                               Actions
                             </th>
                           </tr>
@@ -762,7 +762,7 @@ export default function ProjectDetailPage() {
                             <tr>
                               <td
                                 colSpan={4}
-                                className="px-6 py-6 text-center text-slate-500 italic"
+                                className="px-6 py-8 text-center text-slate-500 italic"
                               >
                                 Không có dữ liệu
                               </td>
@@ -776,7 +776,7 @@ export default function ProjectDetailPage() {
                   )}
 
                   {/* Footer pagination */}
-                  <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 text-sm text-slate-500">
                     <span>
                       Showing{" "}
                       {totalSuites === 0
@@ -788,7 +788,7 @@ export default function ProjectDetailPage() {
                       of {totalSuites} suites
                     </span>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                       <button
                         disabled={suitePage === 1}
                         onClick={() =>
@@ -831,18 +831,18 @@ export default function ProjectDetailPage() {
 
             {/* ========== TAB MEMBER ========== */}
             {activeTab === "member" && (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 {/* Top bar */}
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="relative w-64">
+                  <div className="relative w-72">
                     <Search
-                      className="pointer-events-none absolute left-3 top-2.5 h-4 w-4"
+                      className="pointer-events-none absolute left-3.5 top-3 h-5 w-5 text-slate-400"
                       stroke="#84828A"
                       strokeWidth={2}
                     />
 
                     <input
-                      className="w-full rounded-full border border-slate-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+                      className="w-full rounded-full border border-slate-200 bg-white pl-10 pr-4 py-2.5 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
                       placeholder="Search by name"
                       value={memberSearch}
                       onChange={(e) => {
@@ -852,11 +852,11 @@ export default function ProjectDetailPage() {
                     />
                   </div>
 
-                  <button className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90">
+                  <button className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
                     <Plus
-                      className="h-4 w-4"
+                      className="h-5 w-5"
                       stroke="#84828A"
-                      strokeWidth={2}
+                      strokeWidth={2.5}
                     />
                     Add Member
                   </button>
@@ -865,12 +865,12 @@ export default function ProjectDetailPage() {
                 {/* Members Table */}
                 <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
                   {loadingMembers && (
-                    <p className="px-6 py-4 text-sm text-slate-500">
+                    <p className="px-6 py-8 text-base text-slate-500">
                       Đang tải danh sách member...
                     </p>
                   )}
                   {errorMembers && (
-                    <p className="px-6 py-4 text-sm text-red-500">
+                    <p className="px-6 py-8 text-base text-red-500">
                       {errorMembers}
                     </p>
                   )}
@@ -878,17 +878,15 @@ export default function ProjectDetailPage() {
                   {!loadingMembers && (
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-sm">
-                        <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+                        <thead className="bg-slate-50 text-base font-semibold text-slate-500">
                           <tr>
-                            <th className="px-4 py-3 text-left w-12">STT</th>
-                            <th className="px-4 py-3 text-left">Name</th>
-                            <th className="px-4 py-3 text-left w-32">Role</th>
-                            <th className="px-4 py-3 text-left w-40">
-                              Joined At
-                            </th>
+                            <th className="px-6 py-4 text-left w-12">STT</th>
+                            <th className="px-6 py-4 text-left">Name</th>
+                            <th className="px-6 py-4 text-left w-48">Role</th>
+                            <th className="px-6 py-4 text-left w-48">Joined At</th>
 
                             {/* Action column widened */}
-                            <th className="px-4 py-3 text-left w-48">Action</th>
+                            <th className="px-6 py-4 text-left w-48">Action</th>
                           </tr>
                         </thead>
 
@@ -897,7 +895,7 @@ export default function ProjectDetailPage() {
                             <tr>
                               <td
                                 colSpan={5}
-                                className="px-6 py-6 text-center text-slate-500 italic"
+                                className="px-6 py-8 text-center text-slate-500 italic"
                               >
                                 Không có dữ liệu
                               </td>
@@ -916,39 +914,39 @@ export default function ProjectDetailPage() {
 
                               return (
                                 <tr key={m.user_id || m.id || idx}>
-                                  <td className="px-4 py-3 text-xs text-slate-500">
+                                  <td className="px-6 py-4 text-base text-slate-500">
                                     {(memberPage - 1) * memberPageSize +
                                       idx +
                                       1}
                                   </td>
 
-                                  <td className="px-4 py-3">
+                                  <td className="px-6 py-4">
                                     <div className="flex items-center gap-3">
                                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
-                                        <User className="h-5 w-5" strokeWidth={2} />
+                                        <User className="h-5 w-5" strokeWidth={2.5} />
                                       </div>
-                                      <span className="text-slate-800">
+                                      <span className="text-slate-800 font-semibold">
                                         {fullName}
                                       </span>
                                     </div>
                                   </td>
 
-                                  <td className="px-4 py-3 text-slate-700">
+                                  <td className="px-6 py-4 text-slate-800 font-semibold">
                                     {role}
                                   </td>
 
-                                  <td className="px-4 py-3 text-xs text-slate-500">
+                                  <td className="px-6 py-4 text-sm text-slate-500">
                                     {joinedAt}
                                   </td>
 
                                   {/* Action cell widened */}
-                                  <td className="px-4 py-3 w-48">
+                                  <td className="px-6 py-4 w-48">
                                     {isOwner ? (
-                                      <button className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90">
+                                      <button className="rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
                                         Change Owner
                                       </button>
                                     ) : (
-                                      <button className="rounded-full bg-primary px-4 py-1.5 text-xs font-medium text-white hover:bg-primary/90">
+                                      <button className="rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
                                         Remove
                                       </button>
                                     )}
@@ -963,7 +961,7 @@ export default function ProjectDetailPage() {
                   )}
 
                   {/* Footer */}
-                  <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-xs text-slate-500">
+                  <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 text-sm text-slate-500">
                     <span>
                       Showing{" "}
                       {totalMembers === 0
@@ -975,7 +973,7 @@ export default function ProjectDetailPage() {
                       of {totalMembers} members
                     </span>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-2">
                       <button
                         disabled={memberPage === 1}
                         onClick={() =>
@@ -990,7 +988,7 @@ export default function ProjectDetailPage() {
                         <button
                           key={i}
                           onClick={() => setMemberPage(i + 1)}
-                          className={`h-7 min-w-[1.75rem] rounded-full text-center text-xs ${memberPage === i + 1
+                          className={`h-7 min-w-[1.75rem] rounded-full text-center text-sm ${memberPage === i + 1
                             ? "bg-primary text-white"
                             : "text-slate-600 hover:bg-slate-100"
                             }`}

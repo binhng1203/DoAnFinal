@@ -286,7 +286,7 @@ export default function TestCaseListPage() {
           <button
             type="button"
             onClick={openCreateModal}
-            className="rounded-full bg-primary px-4 py-2 text-xs font-medium text-white hover:bg-primary/90"
+            className="rounded-full bg-primary px-5 py-2.5 text-base font-medium text-white hover:bg-primary/90"
           >
             + Add Test Case
           </button>
@@ -383,8 +383,7 @@ export default function TestCaseListPage() {
                                     }
                                   )
                                 }
-                                // Style mới: Không đậm (bỏ font-medium), không gạch chân (bỏ hover:underline)
-                                className="cursor-pointer text-slate-700 hover:text-primary transition-colors"
+                                className="cursor-pointer text-lg font-medium text-slate-700 hover:text-primary transition-colors"
                               >
                                 {tc.name || "—"}
                               </span>
@@ -613,8 +612,8 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
   // Trạng thái Loading
   if (isRunning) {
     return (
-      <button disabled className="inline-flex items-center gap-1 rounded-full bg-primary/70 px-4 py-1.5 text-xs font-medium text-white cursor-not-allowed">
-        <span className="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent" />
+      <button disabled className="inline-flex items-center gap-2 rounded-full bg-primary/70 px-4 py-2 text-base font-medium text-white cursor-not-allowed">
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
         Running...
       </button>
     );
@@ -625,16 +624,16 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
       {/* Nút Trigger */}
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-all shadow-sm"
+        className="inline-flex items-center gap-1 rounded-full bg-primary px-4 py-2 text-base font-medium text-white hover:bg-primary/90 transition-all shadow-sm"
       >
-        <Play className="h-3 w-3 fill-current" />
+        <Play className="h-3.5 w-3.5 fill-current" />
         Run
-        <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {/* Menu Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 z-10 mt-2 w-48 origin-top-right rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in duration-100">
+        <div className="absolute right-0 z-10 mt-2 w-60 origin-top-right rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl ring-1 ring-black ring-opacity-5 focus:outline-none animate-in fade-in zoom-in duration-100">
           
           {/* Option 1: Self-healing */}
           <button
@@ -642,10 +641,10 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
               onRunSelfHealing();
               setIsOpen(false);
             }}
-            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+            className="group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-base text-slate-700 hover:bg-slate-50 transition-colors"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-              <Wand2 className="h-3.5 w-3.5 fill-current" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
+              <Wand2 className="h-5 w-5 fill-current" />
             </div>
             <div className="flex flex-col items-start">
                <span className="font-semibold text-slate-800">Self-healing</span>
@@ -658,10 +657,10 @@ function RunDropdown({ testCaseId, isRunning, onRunSelfHealing, onRunProactive }
               onRunProactive();
               setIsOpen(false);
             }}
-            className="group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 transition-colors"
+            className="group flex w-full items-center gap-3 rounded-lg px-4 py-3 text-base text-slate-700 hover:bg-slate-50 transition-colors"
           >
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
-              <Sparkles className="h-3.5 w-3.5 fill-current" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-rose-100 text-rose-600 group-hover:bg-rose-500 group-hover:text-white transition-colors">
+              <Sparkles className="h-5 w-5 fill-current" />
             </div>
             <div className="flex flex-col items-start">
                <span className="font-semibold text-slate-800">Proactive</span>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowDownIcon,
   InformationCircleIcon,
@@ -8,6 +8,7 @@ import apiClient from "../../services/apiClient"; // chỉnh path nếu khác
 
 export default function KnowledgeBaseDetailPage() {
   const { id } = useParams(); // locator id từ URL
+  const navigate = useNavigate();
 
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -77,17 +78,23 @@ export default function KnowledgeBaseDetailPage() {
   const recentEvents = item?.recent_healing_events || [];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* BREADCRUMB + TITLE */}
-      <div className="flex flex-col gap-1">
-        <div className="text-xs text-slate-500">
-          Healing Knowledge Base{" "}
-          <span className="mx-1">›</span>
+      <div className="flex flex-col gap-2">
+        <div className="text-base font-medium text-slate-500">
+          <button 
+            type="button"
+            onClick={() => navigate("/knowledge-base")} 
+            className="hover:text-primary transition-colors cursor-pointer"
+          >
+            Healing Knowledge Base
+          </button>
+          <span className="mx-2">›</span>
           <span className="text-primary font-medium">
             {oldLocator}
           </span>
         </div>
-        <h1 className="text-2xl font-semibold text-slate-800">
+        <h1 className="text-3xl font-semibold text-slate-800">
           Locator Mapping
         </h1>
       </div>
@@ -106,21 +113,21 @@ export default function KnowledgeBaseDetailPage() {
 
       {/* CARD CHÍNH */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="p-6 space-y-6">
+        <div className="p-8 space-y-8">
           {/* LOCATOR MAPPING */}
-          <section className="space-y-4">
+          <section className="space-y-6">
             {/* Old locator */}
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            <div className="space-y-3">
+              <div className="text-base font-semibold text-slate-500 uppercase tracking-wide">
                 Old Locator
               </div>
-              <div className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 gap-1">
+              <div className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500 gap-1">
                 <span className="text-[10px] font-semibold">
                   {oldBy}
                 </span>
               </div>
               <textarea
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none"
                 rows={2}
                 readOnly
                 value={oldLocator || ""}
@@ -133,17 +140,17 @@ export default function KnowledgeBaseDetailPage() {
             </div>
 
             {/* New locator */}
-            <div className="space-y-1">
-              <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+            <div className="space-y-3">
+              <div className="text-base font-semibold text-slate-500 uppercase tracking-wide">
                 New Locator
               </div>
-              <div className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-500 gap-1">
+              <div className="inline-flex items-center rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-500 gap-1">
                 <span className="text-[10px] font-semibold">
                   {newBy}
                 </span>
               </div>
               <textarea
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 outline-none"
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none"
                 rows={2}
                 readOnly
                 value={newLocator || ""}
@@ -153,15 +160,15 @@ export default function KnowledgeBaseDetailPage() {
 
           {/* RECENT HEALING EVENTS */}
           <section className="border-t border-slate-100 pt-4">
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+            <h3 className="text-base font-semibold text-slate-500 uppercase tracking-wide mb-2">
               Recent Healing Events
             </h3>
             {recentEvents.length === 0 ? (
-              <p className="text-xs text-slate-400">
+              <p className="text-sm text-slate-400">
                 Không có dữ liệu.
               </p>
             ) : (
-              <ul className="text-xs text-slate-600 space-y-1">
+              <ul className="text-sm text-slate-600 space-y-1">
                 {recentEvents.map((ev, idx) => (
                   <li key={idx} className="flex gap-2">
                     <span>{ev.timestamp}</span>
@@ -178,7 +185,7 @@ export default function KnowledgeBaseDetailPage() {
 
           {/* TABS */}
           <section className="pt-4">
-            <div className="flex gap-4 border-b border-slate-200 text-sm">
+            <div className="flex gap-4 border-b border-slate-200 text-base">
               <button
                 className={`pb-2 border-b-2 ${
                   activeTab === "metrics"
@@ -205,7 +212,7 @@ export default function KnowledgeBaseDetailPage() {
               <div className="mt-4 grid gap-4 md:grid-cols-4">
                 {/* Total success */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
+                  <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>Total Success Count</span>
                     <InformationCircleIcon className="h-4 w-4" />
                   </div>
@@ -216,7 +223,7 @@ export default function KnowledgeBaseDetailPage() {
 
                 {/* Total failure */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
+                  <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>Total Failure Count</span>
                     <InformationCircleIcon className="h-4 w-4" />
                   </div>
@@ -227,7 +234,7 @@ export default function KnowledgeBaseDetailPage() {
 
                 {/* Avg repair time */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
+                  <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>Average Repair Time (ms)</span>
                     <InformationCircleIcon className="h-4 w-4" />
                   </div>
@@ -238,7 +245,7 @@ export default function KnowledgeBaseDetailPage() {
 
                 {/* Success rate */}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
+                  <div className="flex items-center justify-between text-sm text-slate-500">
                     <span>Success Rate (%)</span>
                     <InformationCircleIcon className="h-4 w-4" />
                   </div>
@@ -248,7 +255,7 @@ export default function KnowledgeBaseDetailPage() {
                 </div>
               </div>
             ) : (
-              <div className="mt-4 grid gap-4 md:grid-cols-2 text-xs text-slate-600">
+              <div className="mt-4 grid gap-4 md:grid-cols-2 text-sm text-slate-600">
                 <div className="space-y-1">
                   <div className="font-semibold text-slate-700">
                     System & Metadata

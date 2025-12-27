@@ -19,7 +19,7 @@ export default function Sidebar() {
             // với "/" thì cần end để không active khi đang ở /projects, /knowledge-base
             end={menu.path === ROUTES.DASHBOARD}
             className={({ isActive }) =>
-              `px-4 py-2 rounded-lg text-sm font-medium transition ${
+              `px-4 py-2 rounded-lg text-base font-medium transition ${
                 isActive
                   ? "bg-primary text-white"
                   : "text-slate-600 hover:bg-slate-100"

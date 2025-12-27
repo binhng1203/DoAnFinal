@@ -52,11 +52,11 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
   const processImageUrl = (url) => {
     if (!url) return null;
 
-    // Nếu URL là localhost:8000, ta đổi nó thành đường dẫn qua Proxy
-    // Logic: http://localhost:8000/static/... -> /report-service/static/...
-    // Khi đó Vite sẽ đẩy request sang http://localhost:8006/static/...
-    if (url.includes("localhost:8000")) {
-      return url.replace("http://localhost:8000", "/report-service");
+    // 1. Nếu URL đã là tuyệt đối (http/https) -> Dùng luôn
+    // JSON của bạn trả về: http://localhost:8000/static/visual/... 
+    // -> Hợp lệ, trả về nguyên gốc.
+    if (url.startsWith("http")) {
+      return url; 
     }
 
     return url;
@@ -69,7 +69,7 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
         {/* HEADER */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-bold text-[#6425FE]">Test Detail</h2>
+            <h2 className="text-xl font-bold text-[#6425FE]">Self Healing Detail</h2>
             {!loading && detail && renderStatusBadge(detail.final_result)}
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-rose-500 transition-colors">
@@ -253,25 +253,25 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                                 <div>
                                     <span className="block text-xs text-center text-slate-400 mb-2">Baseline Image</span>
                                     <div className="relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200 mb-2">
-                                        {visual.baseline_url ? (
+                                        {visual.baseline_path ? (
                                             <img 
-                                              src={processImageUrl(visual.baseline_url)} 
+                                              src={processImageUrl(visual.baseline_path)} 
                                               className="w-full h-full object-contain" 
                                             />
                                         ) : (
                                             <div className="flex items-center justify-center h-full text-xs text-slate-400">No Image</div>
                                         )}
                                     </div>
-                                    {visual.baseline_url && (
+                                    {visual.baseline_path && (
                                         <div className="px-1">
                                             <a 
-                                                href={processImageUrl(visual.baseline_url)} 
+                                                href={processImageUrl(visual.baseline_path)} 
                                                 target="_blank" 
                                                 rel="noreferrer"
                                                 className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline break-all block leading-tight"
-                                                title={visual.baseline_url} // Hover để xem full nếu bị cắt
+                                                title={visual.baseline_path} // Hover để xem full nếu bị cắt
                                             >
-                                                {visual.baseline_url}
+                                                {visual.baseline_path}
                                             </a>
                                         </div>
                                     )}
@@ -279,25 +279,25 @@ export default function RunDetailModal({ isOpen, onClose, runId, runInfo }) {
                                 <div>
                                     <span className="block text-xs text-center text-slate-400 mb-2">Current Image</span>
                                     <div className="relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200 mb-2">
-                                        {visual.current_url ? (
+                                        {visual.current_path ? (
                                             <img 
-                                              src={processImageUrl(visual.current_url)} 
+                                              src={processImageUrl(visual.current_path)} 
                                               className="w-full h-full object-contain" 
                                             />
                                         ) : (
                                             <div className="flex items-center justify-center h-full text-xs text-slate-400">No Image</div>
                                         )}
                                     </div>
-                                    {visual.current_url && (
+                                    {visual.current_path && (
                                         <div className="px-1">
                                             <a 
-                                                href={processImageUrl(visual.current_url)} 
+                                                href={processImageUrl(visual.current_path)} 
                                                 target="_blank" 
                                                 rel="noreferrer"
                                                 className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline break-all block leading-tight"
-                                                title={visual.current_url}
+                                                title={visual.current_path}
                                             >
-                                                {visual.current_url}
+                                                {visual.current_path}
                                             </a>
                                         </div>
                                     )}

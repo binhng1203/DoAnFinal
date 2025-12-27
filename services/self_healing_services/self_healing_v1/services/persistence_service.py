@@ -66,7 +66,7 @@ class PersistenceService:
         # 2. Khởi tạo StorageService (Upload ảnh)
         try:
             base_public_url = os.getenv(
-                "VISUAL_BASE_URL", "http://localhost:8000/static/visual"
+                "VISUAL_BASE_URL", "http://localhost:8003/static/visual"
             )
             base_dir = os.getenv(
                 "VISUAL_BASE_DIR", os.path.join(os.getcwd(), "visual_public")
