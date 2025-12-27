@@ -133,14 +133,14 @@ export default function ProjectsPage() {
 
       {/* TOP BAR */}
       <div className="flex items-center justify-end gap-3 flex-wrap">
-        <div className="w-full md:w-60">
+        <div className="w-full md:w-72">
           <input
-            className="w-full rounded-full border border-slate-200 bg-white px-4 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
+            className="w-full rounded-full border border-slate-200 bg-white px-5 py-2.5 text-base outline-none focus:border-primary focus:ring-2 focus:ring-primary/10"
             placeholder="Search for..."
           />
         </div>
 
-        <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-2 py-1 text-xs">
+        <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white p-1.5 shadow-sm">
           <button
             onClick={() => setViewMode("card")}
             className={`px-3 py-1 rounded-full transition ${
@@ -182,9 +182,9 @@ export default function ProjectsPage() {
       {!loading && !error && viewMode === "card" && (
         <>
           {projects.length === 0 ? (
-            <p className="text-sm text-slate-500">Không có project nào.</p>
+            <p className="text-base text-slate-500">Không có project nào.</p>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {projects.map((p) => (
                 <div
                   key={p.project_id}
@@ -217,14 +217,14 @@ export default function ProjectsPage() {
       {!loading && !error && viewMode === "list" && (
         <div className="mt-2 overflow-x-auto">
           <div className="min-w-full rounded-2xl bg-white border border-slate-200 shadow-sm">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+            <table className="min-w-full text-base">
+              <thead className="bg-slate-50 text-base font-semibold text-slate-500">
                 <tr>
-                  <th className="px-6 py-3 text-left">Project Name</th>
-                  <th className="px-6 py-3 text-left">Owner</th>
-                  <th className="px-6 py-3 text-left">Status</th>
-                  <th className="px-6 py-3 text-left">Created Date</th>
-                  <th className="px-6 py-3 text-left">Actions</th>
+                  <th className="px-6 py-4 text-left">Project Name</th>
+                  <th className="px-6 py-4 text-left">Owner</th>
+                  <th className="px-6 py-4 text-left">Status</th>
+                  <th className="px-6 py-4 text-left">Created Date</th>
+                  <th className="px-6 py-4 text-left">Actions</th>
                 </tr>
               </thead>
 
@@ -233,7 +233,7 @@ export default function ProjectsPage() {
                   <tr>
                     <td
                       colSpan={5}
-                      className="px-6 py-6 text-center text-slate-500 italic"
+                      className="px-6 py-8 text-center text-slate-500 italic"
                     >
                       Không có dữ liệu
                     </td>
@@ -242,17 +242,17 @@ export default function ProjectsPage() {
                   projects.map((p) => (
                     <tr key={p.project_id} className="hover:bg-slate-50">
                       {/* Name */}
-                      <td className="px-6 py-3">
+                      <td className="px-6 py-4">
                         <button
                           type="button"
                           onClick={() => handleOpenDetail(p.project_id)}
                         >
                           <div className="flex flex-col text-left">
-                            <span className="font-medium text-slate-800">
+                            <span className="text-lg font-medium text-slate-800">
                               {p.name}
                             </span>
                             {p.description && (
-                              <span className="text-xs text-slate-500">
+                              <span className="text-sm text-slate-500">
                                 {p.description}
                               </span>
                             )}
@@ -261,29 +261,29 @@ export default function ProjectsPage() {
                       </td>
 
                       {/* Owner */}
-                      <td className="px-6 py-3">
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
-                            <User className="h-4 w-4" strokeWidth={2} />
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 border border-slate-200 text-slate-500">
+                            <User className="h-4 w-4" strokeWidth={2.5} />
                           </div>
-                          <span className="text-slate-700 text-sm">
+                          <span className="text-slate-700 text-base">
                             {p.role}
                           </span>
                         </div>
                       </td>
 
                       {/* Status */}
-                      <td className="px-6 py-3">
+                      <td className="px-6 py-4">
                         {renderStatusText(p.status)}
                       </td>
 
                       {/* Created At */}
-                      <td className="px-6 py-3 text-slate-500">
+                      <td className="px-6 py-4 text-slate-500">
                         {formatDate(p.created_at)}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-3">
+                      <td className="px-6 py-4">
                         <div className="flex items-center gap-2">
                           <button
                             className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 hover:bg-slate-50"
@@ -317,7 +317,7 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mt-4 text-sm text-slate-500">
         Showing {projects.length} projects
       </p>
 

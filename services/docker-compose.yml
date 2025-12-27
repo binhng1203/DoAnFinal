@@ -1,4 +1,4 @@
-version: '3.9'
+
 services:
   # ============================================================
   # 1. SHARED DATABASE
@@ -120,7 +120,7 @@ services:
     volumes:
       - ./self_healing_services:/app
       # Map thư mục ảnh để Validation Layer (SSIM/OpenCV) hoạt động
-      - ./self_healing_services/visual_baseline:/app/visual_baseline
+      - ./self_healing_services/visual_baseline:/app/static
     # THÊM DÒNG NÀY: Để API tự khởi động và tự tải lại khi bạn sửa code
     command: uvicorn runner.api:app --host 0.0.0.0 --port 8000 --reload
     networks:

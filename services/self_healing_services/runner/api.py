@@ -1,6 +1,7 @@
 import os
 import logging
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 # Import tuyệt đối để chạy ổn định trong Docker
@@ -8,6 +9,21 @@ from runner.db_loader import fetch_test_case_data
 from runner.generic_executor import execute_test_logic
 
 app = FastAPI()
+
+# 1. Định nghĩa đường dẫn tuyệt đối trong container (phải khớp với dòng volumes ở Bước 1)
+# Trong Docker nãy mình map vào /app/static, nên ở đây cũng phải trỏ vào đó.
+STATIC_DIR = "/app/static" 
+
+# Kiểm tra xem thư mục có tồn tại không, nếu không thì tạo (tránh lỗi code)
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+
+# 2. Mount thư mục static
+# Khi user truy cập: http://localhost:8000/static/visual/fullscreen/anh.png
+# Server tìm ở: /app/static/fullscreen/anh.png
+app.mount("/static/visual", StaticFiles(directory=STATIC_DIR), name="static")
+
+
 logger = logging.getLogger(__name__)
 
 class RunRequest(BaseModel):

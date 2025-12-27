@@ -654,7 +654,7 @@ export default function TestCaseDetailPage() {
         <div className="space-y-6">
           {/* Application Info */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400 mb-5">
+            <h3 className="mb-4 text-base font-bold uppercase tracking-wide text-slate-400">
               Application Info
             </h3>
             <div className="space-y-4 text-sm">
@@ -679,7 +679,7 @@ export default function TestCaseDetailPage() {
 
           {/* Run Info */}
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h3 className="text-sm font-bold uppercase tracking-wide text-slate-400 mb-5">
+            <h3 className="mb-4 text-base font-bold uppercase tracking-wide text-slate-400">
               Run Information
             </h3>
             <div className="space-y-4 text-sm">
@@ -714,13 +714,13 @@ export default function TestCaseDetailPage() {
           <table className="w-full text-base text-left">
             <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-200"> 
               <tr>
-                <th className="px-5 py-2.5 w-14">Step</th>
-                <th className="px-5 py-2.5 w-36">Action</th>
-                <th className="px-5 py-2.5 w-36">Locator Type</th>
-                <th className="px-5 py-2.5 w-56">Locator Value</th>
-                <th className="px-5 py-2.5 w-40">URL</th>
-                <th className="px-5 py-2.5">Expected Result</th>
-                <th className="px-5 py-2.5 text-right w-32">Actions</th>
+                <th className="px-5 py-2.5 w-20">Step</th>
+                <th className="px-5 py-2.5 w-40">Action</th>
+                <th className="px-5 py-2.5 w-40">Locator Type</th>
+                <th className="px-5 py-2.5 w-40">Locator Value</th>
+                <th className="px-5 py-2.5 w-80">URL</th>
+                <th className="px-5 py-2.5 w-80">Expected Result</th>
+                <th className="px-5 py-2.5 text-right w-40">Actions</th>
               </tr>
             </thead>
 
@@ -965,9 +965,8 @@ export default function TestCaseDetailPage() {
             <thead className="bg-slate-50 text-xs font-bold uppercase tracking-wide text-slate-500 border-b border-slate-100">
               <tr>
                 <th className="px-5 py-2.5">PR Info</th>
-                <th className="px-5 py-2.5">Commit Message</th>
                 <th className="px-5 py-2.5">Author</th>
-                <th className="px-5 py-2.5">Score</th>
+                <th className="px-5 py-2.5">Confidence Score</th>
                 <th className="px-5 py-2.5 text-center">Status</th>
                 <th className="px-5 py-2.5">Timestamp</th>
               </tr>
@@ -986,16 +985,9 @@ export default function TestCaseDetailPage() {
                     <td className="px-5 py-2.5">
                       <div className="flex items-center gap-2">
                          <span className="font-mono font-bold text-blue-600">
-                            {item.pr_number ? `#${item.pr_number}` : "—"}
+                            {item.id ? `#${item.id}` : "—"}
                          </span>
                       </div>
-                    </td>
-
-                    {/* Cột 2: Commit Message */}
-                    <td className="px-5 py-2.5 max-w-[240px] truncate" title={item.commit_msg}>
-                      <span className="text-slate-700 font-medium">
-                        {item.commit_msg || "—"}
-                      </span>
                     </td>
 
                     {/* Cột 3: Author */}

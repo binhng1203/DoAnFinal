@@ -47,7 +47,7 @@ export default function KnowledgeBasePage() {
 
     return (
       <span
-        className="text-xs text-slate-600 max-w-xs truncate inline-block"
+        className="text-sm text-slate-600 max-w-xs truncate inline-block"
         title={full} // hover để xem full locator
       >
         {display}
@@ -132,14 +132,14 @@ export default function KnowledgeBasePage() {
         : "bg-red-500";
 
     return (
-      <div className="flex items-center gap-2">
-        <div className="h-1.5 w-16 rounded-full bg-slate-100">
+      <div className="flex items-center gap-3">
+        <div className="h-2 w-20 rounded-full bg-slate-100">
           <div
-            className={`h-1.5 rounded-full ${barColor}`}
+            className={`h-full rounded-full ${barColor}`}
             style={{ width: `${Math.min(100, Math.max(0, percent))}%` }}
           />
         </div>
-        <span className="text-xs font-medium text-slate-700">
+        <span className="text-sm font-medium text-slate-700">
           {percent}%
         </span>
       </div>
@@ -214,17 +214,17 @@ export default function KnowledgeBasePage() {
         {/* TABLE */}
         {!loading && (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-xs font-semibold text-slate-500">
+            <table className="min-w-full text-base">
+              <thead className="bg-slate-50 text-base font-semibold text-slate-500">
                 <tr>
-                  <th className="px-4 py-3 text-left w-12">STT</th>
-                  <th className="px-4 py-3 text-left">Project ID</th>
-                  <th className="px-4 py-3 text-left">Old Locator</th>
-                  <th className="px-4 py-3 text-left">New Locator</th>
-                  <th className="px-4 py-3 text-left">Success Rate</th>
-                  <th className="px-4 py-3 text-left">Avg Repair Time</th>
-                  <th className="px-4 py-3 text-left">Last Healing</th>
-                  <th className="px-4 py-3 text-left w-20">Actions</th>
+                  <th className="px-6 py-4 text-left w-12">STT</th>
+                  <th className="px-6 py-4 text-left">Project ID</th>
+                  <th className="px-6 py-4 text-left">Old Locator</th>
+                  <th className="px-6 py-4 text-left">New Locator</th>
+                  <th className="px-6 py-4 text-left">Success Rate</th>
+                  <th className="px-6 py-4 text-left">Avg Repair Time</th>
+                  <th className="px-6 py-4 text-left">Last Healing</th>
+                  <th className="px-6 py-4 text-left w-20">Actions</th>
                 </tr>
               </thead>
 
@@ -233,7 +233,7 @@ export default function KnowledgeBasePage() {
                   <tr>
                     <td
                       colSpan={8}
-                      className="px-6 py-6 text-center text-slate-500 italic"
+                      className="px-6 py-8 text-center text-slate-500 italic"
                     >
                       Không có dữ liệu
                     </td>
@@ -247,36 +247,36 @@ export default function KnowledgeBasePage() {
                         key={detailId ?? idx}
                         className="hover:bg-slate-50"
                       >
-                        <td className="px-4 py-3 text-xs text-slate-500">
+                        <td className="px-6 py-4 text-sm text-slate-500">
                           {(page - 1) * pageSize + idx + 1}
                         </td>
-                        <td className="px-4 py-3 text-slate-800">
+                        <td className="px-6 py-4 text-slate-800">
                           {row.project_id ?? "—"}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           {renderLocator(
                             row.old_locator_by,
                             row.old_locator_value
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           {renderLocator(
                             row.new_locator_by,
                             row.new_locator_value
                           )}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           {renderSuccessCell(row.success_rate)}
                         </td>
-                        <td className="px-4 py-3 text-slate-700">
+                        <td className="px-6 py-4 text-slate-700">
                           {row.avg_repair_ms != null
                             ? `${row.avg_repair_ms} ms`
                             : "—"}
                         </td>
-                        <td className="px-4 py-3 text-slate-500 text-xs">
+                        <td className="px-6 py-4 text-slate-500 text-xs">
                           {formatDateTime(row.last_updated)}
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-6 py-4">
                           <button
                             disabled={!detailId}
                             onClick={() =>
@@ -298,13 +298,13 @@ export default function KnowledgeBasePage() {
         )}
 
         {/* FOOTER: info + pagination */}
-        <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-xs text-slate-500">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-sm text-slate-500">
           <span>
             Showing {total === 0 ? "0" : `${showingFrom}-${showingTo}`} of{" "}
             {total} records
           </span>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <button
               disabled={page === 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}

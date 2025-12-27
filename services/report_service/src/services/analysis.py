@@ -41,9 +41,7 @@ class AnalysisService:
             # BR3.2: Format dữ liệu hiển thị
             results.append({
                 "id": str(doc["_id"]),
-                "pr_number": doc.get("pr", {}).get("number"),
-                "author": doc.get("pr", {}).get("author"),
-                "commit_msg": doc.get("pr", {}).get("title", ""), # Nếu có lưu title
+                "author": doc.get("pr", {}).get("author_name"),
                 "status": doc.get("status"),
                 "confidence_score": doc.get("confidence", {}).get("score"),
                 "started_at": doc.get("timestamps", {}).get("start")
@@ -71,16 +69,12 @@ class AnalysisService:
         # Format cấu trúc dữ liệu trả về
         response = {
             "id": str(doc["_id"]),
-            "case_id": doc.get("case_id"),  # Trả về case_id để Frontend biết nó thuộc case nào
+            "test_result": doc.get("test_result"),  
             "pr_info": doc.get("pr"),
             "status": doc.get("status"),
             "timestamps": doc.get("timestamps"),
             "ui_changes": doc.get("ui_changes", []),
-            "analysis_details": {
-                "predicted_failed_tests": doc.get("analysis_details", {}).get("predicted_failed_tests", []),
-                # Lấy trực tiếp toàn bộ match_details, không cần lọc nữa
-                "match_details": doc.get("analysis_details", {}).get("match_details", [])
-            },
+            "analysis_details": doc.get("analysis_details", []),
             "confidence": doc.get("confidence")
         }
 
