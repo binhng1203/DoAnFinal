@@ -19,7 +19,7 @@ export default function KnowledgeBasePage() {
   const [search, setSearch] = useState("");
   const [sourceType, setSourceType] = useState("All");
   const [successFilter, setSuccessFilter] = useState("All");
-  const [lastUpdated, setLastUpdated] = useState("All");
+  const [updatedAt, setUpdatedAt] = useState("All");
   const [appVersion, setAppVersion] = useState("All");
 
   // paging (theo BE)
@@ -91,7 +91,7 @@ export default function KnowledgeBasePage() {
     setSearch("");
     setSourceType("All");
     setSuccessFilter("All");
-    setLastUpdated("All");
+    setUpdatedAt("All");
     setAppVersion("All");
   };
 
@@ -105,7 +105,7 @@ export default function KnowledgeBasePage() {
 
     if (search && !text.includes(search.toLowerCase())) return false;
 
-    // sourceType, successFilter, lastUpdated, appVersion: để sau ghép thêm field BE
+    // sourceType, successFilter, updatedAt, appVersion: để sau ghép thêm field BE
     return true;
   });
 
@@ -179,7 +179,7 @@ export default function KnowledgeBasePage() {
           </button>
 
           <button className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">
-            <span>Last Updated: {lastUpdated}</span>
+            <span>Last Updated: {updatedAt}</span>
             <ChevronDownIcon className="h-3 w-3" />
           </button>
 
@@ -274,7 +274,7 @@ export default function KnowledgeBasePage() {
                             : "—"}
                         </td>
                         <td className="px-6 py-4 text-slate-500 text-xs">
-                          {formatDateTime(row.last_updated)}
+                          {formatDateTime(row.updated_at)}
                         </td>
                         <td className="px-6 py-4">
                           <button
