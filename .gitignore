@@ -14,8 +14,8 @@ __pycache__/
 venv/
 env/
 # Sửa lỗi chính tả từ .evn thành .env
-.env
-.env.*
+# .env
+# .env.*
 
 # --- Docker & Data Volumes ---
 services/mongo_data/
