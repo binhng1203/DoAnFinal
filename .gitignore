@@ -10,9 +10,9 @@ build/
 __pycache__/
 *.py[cod]
 *$py.class
-.venv/
-venv/
-env/
+# .venv/
+# venv/
+# env/
 # Sửa lỗi chính tả từ .evn thành .env
 # .env
 # .env.*
