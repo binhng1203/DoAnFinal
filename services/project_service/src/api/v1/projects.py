@@ -253,39 +253,75 @@ def delete_project(project_id):
 @jwt_required()
 def add_member(project_id):
     """
-    PS_05: Thêm thành viên (Chỉ Project Admin)
+    PS_05: Thêm thành viên bằng Username
     """
     current_user_id = get_jwt_identity()
     
-    # 1. Check quyền Admin của người thực hiện (BR5.1)
+    # 1. Check quyền Admin (Giữ nguyên code cũ của bạn)
     member, error, code = check_project_permission(project_id, current_user_id, require_admin=True)
     if error: return error, code
 
-    # 2. Validate Input
+    # 2. Validate Input (Theo Schema mới)
     data = request.get_json()
     schema = AddMemberSchema()
     errors = schema.validate(data)
     if errors:
         return jsonify(errors), 400
 
-    new_member_id = data['user_id']
+    target_username = data['username']
     role = data.get('role', 'Member')
 
-    # 3. Check user đã tồn tại trong project chưa (BR5.2)
-    exists = ProjectMember.query.filter_by(project_id=project_id, user_id=new_member_id).first()
-    if exists:
-        return jsonify({"error": "User is already a member"}), 409
+    # ==================================================================
+    # 3. GIAO TIẾP VỚI USER SERVICE (Bước mới)
+    # ==================================================================
+    found_user_id = None
+    
+    try:
+        # Gọi sang API /find mà chúng ta vừa viết ở Phần 1
+        response = requests.get(
+            f"{USER_SERVICE_URL}/api/v1/users/find", 
+            params={"username": target_username},
+            timeout=5 # Set timeout để tránh treo server nếu mạng lag
+        )
 
-    # 4. Thêm Member (BR5.3)
+        if response.status_code == 200:
+            user_data = response.json()
+            found_user_id = user_data.get('user_id') # Lấy UUID về
+        elif response.status_code == 404:
+            return jsonify({"error": f"User with username '{target_username}' not found"}), 404
+        else:
+            return jsonify({"error": "User Service is unavailable"}), 502
+
+    except Exception as e:
+        return jsonify({"error": f"Internal Error: {str(e)}"}), 500
+
+    if not found_user_id:
+        return jsonify({"error": "Cannot resolve User ID"}), 404
+
+    # ==================================================================
+    # 4. LƯU VÀO DB (Logic cũ nhưng dùng found_user_id)
+    # ==================================================================
+    
+    # Check đã tồn tại chưa (Dùng found_user_id vừa tìm được)
+    exists = ProjectMember.query.filter_by(project_id=project_id, user_id=found_user_id).first()
+    if exists:
+        return jsonify({"error": f"User '{target_username}' is already a member"}), 409
+
+    # Insert vào bảng ProjectMember
     try:
         new_mem = ProjectMember(
             project_id=project_id,
-            user_id=new_member_id,
+            user_id=found_user_id, # Quan trọng: Lưu UUID vào DB
             project_role=role
         )
         db.session.add(new_mem)
         db.session.commit()
-        return jsonify({"message": "Member added successfully"}), 201
+        
+        return jsonify({
+            "message": f"User '{target_username}' added successfully",
+            "user_id": found_user_id
+        }), 201
+        
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500

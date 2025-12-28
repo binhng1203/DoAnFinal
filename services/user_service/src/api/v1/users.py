@@ -98,3 +98,29 @@ def get_users_basic_info():
         }
         
     return jsonify(result), 200
+
+@users_bp.route('/find', methods=['GET'])
+def find_user_by_username():
+    """
+    API tìm kiếm user theo username.
+    Input: ?username=abc
+    Output: { "user_id": "uuid...", "fullname": "Nguyen Van A", ... }
+    """
+    username = request.args.get('username')
+    
+    if not username:
+        return jsonify({"error": "Missing 'username' parameter"}), 400
+
+    # Query Database tìm user
+    user = User.query.filter_by(username=username).first()
+
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    # Trả về thông tin (Quan trọng nhất là user_id)
+    return jsonify({
+        "user_id": str(user.user_id),  # Chuyển UUID sang string
+        "username": user.username,
+        "fullname": user.fullname,
+        "email": user.email
+    }), 200

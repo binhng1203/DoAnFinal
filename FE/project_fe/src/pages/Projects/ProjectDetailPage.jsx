@@ -14,7 +14,8 @@ import CreateProjectModal from "../../components/projects/CreateProjectModal";
 import { formatDate } from "../../utils/formatDate";
 import projectService from "../../services/projectService";
 import CreateTestSuiteModal from "../../components/test-suites/CreateTestSuiteModal";
-import ConfirmModal from "../../components/common/ConfirmModal"; // chỉnh path nếu cần
+import ConfirmModal from "../../components/common/ConfirmModal"; 
+import AddMemberModal from "../../components/projects/AddMemberModal";
 
 export default function ProjectDetailPage() {
   const { id } = useParams(); // /projects/:id
@@ -24,6 +25,9 @@ export default function ProjectDetailPage() {
   const [loadingProject, setLoadingProject] = useState(false);
   const [errorProject, setErrorProject] = useState("");
   const [isEditOpen, setIsEditOpen] = useState(false);
+  const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
+  const [isRemoveMemberConfirmOpen, setIsRemoveMemberConfirmOpen] = useState(false);
+  const [memberToRemove, setMemberToRemove] = useState(null);
 
   // ===== Test Suites =====
   const [testSuites, setTestSuites] = useState([]);
@@ -170,7 +174,7 @@ export default function ProjectDetailPage() {
     }
   };
 
-  // ✅ Hàm xử lý cập nhật Suite
+  // Hàm xử lý cập nhật Suite
   const handleUpdateSuite = async (payload) => {
     // payload: { suite_id, name, parent_suite_id }
 
@@ -201,10 +205,71 @@ export default function ProjectDetailPage() {
     // Lưu ý: Không cần alert hay đóng modal ở đây, modal con sẽ tự hiện Success
   };
 
-  // ✅ Hàm mở modal Edit khi bấm nút Pencil
+  // Hàm mở modal Edit khi bấm nút Pencil
   const openEditSuiteModal = (suite) => {
     setEditingSuite(suite);     // Set dữ liệu cũ
     setIsCreateSuiteOpen(true); // Mở Modal
+  };
+
+  const handleAddMember = async (username) => {
+    const payload = {
+      username: username,
+      role: "Member" // Mặc định role là Member theo yêu cầu
+    };
+
+    // Gọi API
+    await projectService.addMember(id, payload);
+
+    // Sau khi thêm thành công, load lại danh sách member
+    // Tái sử dụng hàm fetchMembers bạn đã viết trong useEffect (nhưng cần tách nó ra ngoài useEffect để gọi lại được)
+    // Cách nhanh nhất hiện tại là reload trang hoặc set lại state members thủ công.
+    // Dưới đây là cách cập nhật thủ công để giao diện mượt hơn:
+    
+    const newMember = {
+        user_id: username, // API thường trả về object user, ở đây mình tạm fake để hiển thị ngay
+        fullname: username,
+        role: "Member",
+        joined_at: new Date().toISOString()
+    };
+    
+    setMembers(prev => [newMember, ...prev]); 
+    
+    // Nếu muốn chắc ăn nhất thì gọi lại API get list:
+    // fetchMembers(); <--- Bạn cần tách hàm fetchMembers ra khỏi useEffect để dùng cách này
+  };
+
+  //  Hàm mở popup xác nhận
+  const openRemoveMemberConfirm = (member) => {
+    setMemberToRemove(member);
+    setIsRemoveMemberConfirmOpen(true);
+  };
+
+  //  Hàm gọi API xoá thật sự (được gọi khi bấm Yes ở modal)
+  const handleConfirmRemoveMember = async () => {
+    if (!memberToRemove) return;
+
+    // Lấy user_id (Lưu ý: trong fetchMembers bạn đã map m.user_id, nên object m vẫn giữ field này)
+    const userId = memberToRemove.user_id || memberToRemove.username; 
+
+    try {
+      // 1. Gọi API
+      await projectService.removeMember(id, userId);
+
+      // 2. Cập nhật giao diện (Xoá member khỏi danh sách đang hiển thị)
+      setMembers((prev) => prev.filter((m) => 
+        (m.user_id || m.username) !== userId
+      ));
+
+      // 3. Đóng modal
+      setIsRemoveMemberConfirmOpen(false);
+      setMemberToRemove(null);
+
+    } catch (err) {
+      console.error("Remove member error:", err);
+      // Bạn có thể set errorMembers để hiện thông báo lỗi lên màn hình nếu muốn
+      alert("Failed to remove member: " + (err.response?.data?.detail || err.message));
+      setIsRemoveMemberConfirmOpen(false);
+    }
   };
 
   // ================== FETCH PROJECT DETAIL ==================
@@ -852,12 +917,10 @@ export default function ProjectDetailPage() {
                     />
                   </div>
 
-                  <button className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
-                    <Plus
-                      className="h-5 w-5"
-                      stroke="#84828A"
-                      strokeWidth={2.5}
-                    />
+                  <button 
+                  onClick={() => setIsAddMemberOpen(true)}
+                  className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
+                    <Plus className="h-5 w-5" stroke="#ffffffff" strokeWidth={2}/>
                     Add Member
                   </button>
                 </div>
@@ -915,9 +978,7 @@ export default function ProjectDetailPage() {
                               return (
                                 <tr key={m.user_id || m.id || idx}>
                                   <td className="px-6 py-4 text-base text-slate-500">
-                                    {(memberPage - 1) * memberPageSize +
-                                      idx +
-                                      1}
+                                    {(memberPage - 1) * memberPageSize + idx + 1}
                                   </td>
 
                                   <td className="px-6 py-4">
@@ -941,12 +1002,11 @@ export default function ProjectDetailPage() {
 
                                   {/* Action cell widened */}
                                   <td className="px-6 py-4 w-48">
-                                    {isOwner ? (
-                                      <button className="rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
-                                        Change Owner
-                                      </button>
-                                    ) : (
-                                      <button className="rounded-full bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90">
+                                    {!isOwner && (
+                                      <button 
+                                        onClick={() => openRemoveMemberConfirm(m)}
+                                        className="rounded-full bg-red-50 text-red-600 px-4 py-2.5 text-sm font-medium hover:bg-red-100 transition-colors"
+                                      >
                                         Remove
                                       </button>
                                     )}
@@ -1030,7 +1090,7 @@ export default function ProjectDetailPage() {
         projectId={id}
         parentSuiteId={parentSuiteId}
 
-        // ✅ Props cho Edit (Mới thêm)
+        // Props cho Edit (Mới thêm)
         suiteData={editingSuite}
         onUpdate={handleUpdateSuite}
       />
@@ -1052,12 +1112,39 @@ export default function ProjectDetailPage() {
         forbiddenTitle="Permission Denied"
         forbiddenMessage="You do not have permission to delete this test suite."
       />
-      {/* ✅ Thêm Modal Edit vào đây */}
+      {/* Thêm Modal Edit vào đây */}
       <CreateProjectModal
         isOpen={isEditOpen}
         onClose={() => setIsEditOpen(false)}
         projectData={project}          // Truyền dữ liệu cũ vào để form tự điền
         onUpdate={handleUpdateProject} // Truyền hàm xử lý Update
+      />
+
+      {/*  Modal Add Member */}
+      <AddMemberModal 
+        isOpen={isAddMemberOpen}
+        onClose={() => setIsAddMemberOpen(false)}
+        onAdd={handleAddMember}
+      />
+
+      {/* Confirm Modal cho xoá Member */}
+      <ConfirmModal
+        isOpen={isRemoveMemberConfirmOpen}
+        onCancel={() => {
+          setIsRemoveMemberConfirmOpen(false);
+          setMemberToRemove(null);
+        }}
+        onConfirm={handleConfirmRemoveMember}
+        title="Remove Member"
+        message={
+          memberToRemove
+            ? `Are you sure you want to remove "${memberToRemove.fullname || memberToRemove.user_id}" from the project?`
+            : "Are you sure you want to remove this member?"
+        }
+        successTitle="Removed Successfully"
+        successMessage="The member has been removed from the project."
+        confirmText="Remove" // Tuỳ chọn: đổi chữ nút bấm thành Remove
+        isDanger={true}      // Tuỳ chọn: nếu ConfirmModal hỗ trợ style nguy hiểm (màu đỏ)
       />
     </>
   );

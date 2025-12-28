@@ -16,7 +16,7 @@ class ProjectSchema(ma.Schema):
 
 # Schema cho việc thêm thành viên (PS_05)
 class AddMemberSchema(ma.Schema):
-    user_id = fields.UUID(required=True) # ID của user cần thêm
+    username = fields.String(required=True, validate=validate.Length(min=3))
     role = fields.String(validate=validate.OneOf(["Project Admin", "Member"]), load_default="Member")
 
 # Schema hiển thị thông tin thành viên (PS_07)

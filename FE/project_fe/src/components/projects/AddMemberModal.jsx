@@ -103,9 +103,7 @@ export default function AddMemberModal({ isOpen, onClose, onAdd }) {
                 {inputError && (
                   <p className="mt-1 text-xs text-red-500">{inputError}</p>
                 )}
-                <p className="mt-1 text-xs text-slate-400">
-                  Default role will be set to <b>Member</b>.
-                </p>
+                
               </div>
 
               <div className="flex justify-end gap-3 pt-2">
