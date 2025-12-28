@@ -73,6 +73,18 @@ const projectService = {
     return apiClient.get(`/api/v1/projects/${projectId}/members`);
   },
 
+  // Thêm thành viên vào project
+  async addMember(projectId, payload) {
+    // POST http://localhost:8002/api/v1/projects/{projectId}/members
+    // payload: { username: "...", role: "Member" }
+    return apiClient.post(`/api/v1/projects/${projectId}/members`, payload);
+  },
+
+  async removeMember(projectId, userId) {
+    // DELETE http://localhost:8002/api/v1/projects/{projectId}/members/{userId}
+    return apiClient.delete(`/api/v1/projects/${projectId}/members/${userId}`);
+  },
+
   async joinProject(projectCode) {
     return Promise.resolve();
   },
