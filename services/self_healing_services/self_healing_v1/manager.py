@@ -218,6 +218,34 @@ class HealingManager:
             )
             self.context.raw_result = "PASS"
             self._learn_selector(element, by, value)
+
+            # --- BỔ SUNG: VALIDATION CHO PHẦN TỬ TÌM THẤY BÌNH THƯỜNG ---
+            if self.validation_layer:
+                try:
+                    # Nếu không có element_name, dùng locator làm tên
+                    target_name = element_name or self.validation_layer._safe_name(value)
+                    
+                    # Gọi validate: Nếu chưa có Baseline, nó sẽ tự tạo
+                    visual_status = self.validation_layer.validate_element_visual(element, target_name)
+                    
+                    # Lưu log vào DB để lần đầu chạy có luôn URL Baseline
+                    if self.persistence_service:
+                        last_vis = self.validation_layer.get_last_element_result() or {}
+                        self.persistence_service.log_visual_validation_event(
+                            test_id=(self.context.test_context or {}).get("test_id"),
+                            run_id=(self.context.test_context or {}).get("run_id"),
+                            scope="ELEMENT",
+                            target_name=target_name,
+                            page_url=self.driver.current_url,
+                            status=visual_status,
+                            ssim_score=last_vis.get("ssim_score", 1.0),
+                            baseline_path=last_vis.get("baseline_path"),
+                            current_path=last_vis.get("current_path")
+                        )
+                except Exception as ve:
+                    logger.error(f"[Manager] Visual check error (Normal Find): {ve}")
+            # -------------------------------------------------------
+
             return element
 
         except (TimeoutException, NoSuchElementException):
